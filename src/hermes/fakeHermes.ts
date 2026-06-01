@@ -1,0 +1,59 @@
+import type { DeliveryTarget, HermesRunRequest, HermesRunner, KanbanTask } from './types';
+
+export interface FakeHermesOptions {
+  tasks?: KanbanTask[];
+  deliveryTargets?: DeliveryTarget[];
+}
+
+export interface FakeHermes {
+  runner: HermesRunner;
+  requests: HermesRunRequest[];
+}
+
+export function createFakeHermes(options: FakeHermesOptions = {}): FakeHermes {
+  const requests: HermesRunRequest[] = [];
+  const tasks = options.tasks ?? [];
+  const deliveryTargets = options.deliveryTargets ?? [];
+
+  const runner: HermesRunner = async (request) => {
+    requests.push(request);
+
+    if (matches(request.args, ['kanban', '--board']) && request.args.includes('list')) {
+      return ok({ tasks });
+    }
+
+    if (matches(request.args, ['kanban', '--board']) && request.args.includes('show')) {
+      const taskId = request.args[4];
+      const task = tasks.find((candidate) => candidate.id === taskId);
+      return task ? ok({ task }) : fail(`No fake task found for ${taskId}`);
+    }
+
+    if (matches(request.args, ['send', '--list'])) {
+      return ok({ targets: deliveryTargets });
+    }
+
+    if (matches(request.args, ['cron', 'list'])) {
+      return ok({ jobs: [] });
+    }
+
+    if (matches(request.args, ['kanban', '--board']) && ['comment', 'promote', 'archive', 'dispatch'].includes(request.args[3])) {
+      return ok({ ok: true });
+    }
+
+    return fail(`Unhandled fake Hermes command: ${request.args.join(' ')}`);
+  };
+
+  return { runner, requests };
+}
+
+function matches(args: string[], prefix: string[]): boolean {
+  return prefix.every((part, index) => args[index] === part);
+}
+
+function ok(value: unknown) {
+  return { stdout: JSON.stringify(value), stderr: '', exitCode: 0 };
+}
+
+function fail(message: string) {
+  return { stdout: '', stderr: message, exitCode: 1 };
+}

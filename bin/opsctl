@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+if [ -f "$ROOT_DIR/dist/opsctl/cli.js" ]; then
+  exec node "$ROOT_DIR/dist/opsctl/cli.js" "$@"
+fi
+
+if [ -x "$ROOT_DIR/node_modules/.bin/tsx" ]; then
+  exec "$ROOT_DIR/node_modules/.bin/tsx" "$ROOT_DIR/src/opsctl/cli.ts" "$@"
+fi
+
+exec npx tsx "$ROOT_DIR/src/opsctl/cli.ts" "$@"

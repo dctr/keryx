@@ -1,0 +1,10 @@
+{
+  "board": "keryx",
+  "pollIntervalMs": 30000,
+  "defaultAssignee": "default",
+  "defaultDeliveryTarget": null,
+  "localOnly": true,
+  "hermesBin": "hermes",
+  "host": "127.0.0.1",
+  "port": 4173
+}

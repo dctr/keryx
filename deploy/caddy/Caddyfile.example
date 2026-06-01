@@ -1,0 +1,11 @@
+# Example Caddy route for Keryx.
+# Do not expose Keryx without external authentication.
+# Replace the host and hashed password before use.
+
+keryx.example.invalid {
+  basicauth {
+    operator JDJhJDE0JHNhbXBsZS1oYXNoLXJlcGxhY2UtdGhpcy1iZWZvcmUtdXNl
+  }
+
+  reverse_proxy 127.0.0.1:4173
+}

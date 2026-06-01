@@ -1,0 +1,23 @@
+# Example systemd unit for Keryx.
+# Copy to ~/.config/systemd/user/keryx.service or /etc/systemd/system/keryx.service,
+# review paths and user settings, then enable it yourself.
+
+[Unit]
+Description=Keryx local action inbox
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/keryx
+Environment=HOST=127.0.0.1
+Environment=PORT=4173
+ExecStart=/usr/bin/env npm start
+Restart=on-failure
+RestartSec=5s
+
+# For a system service, set User= to the account that owns the Hermes profile.
+# User=keryx
+
+[Install]
+WantedBy=default.target

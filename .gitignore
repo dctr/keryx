@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.svelte-kit/
+playwright-report/
+test-results/
+.env
+*.log
+.DS_Store
+keryx.config.json

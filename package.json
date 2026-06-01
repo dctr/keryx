@@ -1,0 +1,33 @@
+{
+  "name": "keryx",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thin TypeScript control surface over Hermes Kanban for Keryx action items.",
+  "scripts": {
+    "start": "npm run build && node dist/server/index.js",
+    "build": "vite build && vite build --ssr src/server/index.ts --outDir dist/server",
+    "test": "vitest",
+    "lint": "tsc --noEmit --project tsconfig.json",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json && tsc --noEmit --project tsconfig.json",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "fastify": "^5.8.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@types/node": "^25.9.1",
+    "svelte": "^5.56.0",
+    "svelte-check": "^4.4.8",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14",
+    "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
