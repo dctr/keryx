@@ -21,7 +21,7 @@ For each actionable item, create a Kanban card on board `keryx` using blocked ca
 ```text
 assignee: default
 tenant: <source>
-created_by: keryx-<source>
+created_by: keryx-collector-<source>
 initial_status: blocked
 skill: keryx-worker
 idempotency_key: keryx:<source>:<stable-id>
@@ -40,6 +40,8 @@ The body must include stable `source_refs`, one or more executable `options`, co
 
 ## Cron behaviour
 
-- Bash-first collectors may use a cheap script to output `{ "wakeAgent": false }` when there is no new work.
-- Direct-agent collectors may inspect fragile or logged-in sources directly, but still apply the same trust and cursor rules.
+- Programmatic collectors may use a cheap pre-check script to gather candidates and skip the agent when there is no new work.
+- No-work programmatic ticks must keep stdout quiet except for final `{"wakeAgent": false}`; do not print routine progress logs.
+- New-work programmatic ticks should emit compact candidate context and wake the agent; failures that need investigation should emit diagnostics and must not end with `wakeAgent:false`.
+- Agentic collectors may inspect fragile or logged-in sources directly, but still apply the same trust and cursor rules.
 - Collector cron jobs should normally deliver locally/silently; source health belongs in Keryx UI and cron status.
