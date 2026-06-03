@@ -1,6 +1,6 @@
 # Keryx
 
-Keryx is a local action inbox for Hermes Kanban. Source-specific collectors create structured, blocked Kanban cards; Keryx shows those cards in a small web UI; an operator chooses Execute or Dismiss; Hermes workers do the actual work.
+Keryx is an action inbox front-end for Hermes Kanban. Source-specific collectors create structured, blocked Kanban cards; Keryx shows those cards in a small web UI; an operator chooses Execute or Dismiss; Hermes workers do the actual work.
 
 Keryx is intentionally thin. It does not replace Hermes cron, Kanban, worker dispatch, skills, logs, retries, or delivery. It adds:
 
@@ -12,12 +12,11 @@ Keryx is intentionally thin. It does not replace Hermes cron, Kanban, worker dis
 ## Requirements
 
 - Hermes Agent CLI installed and configured on `PATH` as `hermes`.
-  - New Hermes install: `curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash`
-  - First setup/checks: `hermes setup` and `hermes doctor`
+  - See [Hermes Docs](https://hermes-agent.nousresearch.com/docs/)
 - Node.js 22 or newer.
 - npm.
 - A Unix-like shell for `./keryx-setup.sh`.
-- Optional: at least one Hermes delivery target if you want worker results sent outside the local UI.
+- Optional: at least one Hermes gateway delivery target (Telegram, Discord, ...) if you want worker results sent outside the local UI.
 
 ## Quick start
 
@@ -114,7 +113,7 @@ Mutation commands are normally driven by the web UI, but are available for recov
 Collector templates live in `collectors/`:
 
 - `collectors/bash-first-template/` for deterministic polling scripts;
-- `collectors/direct-agent-template/` for sources that need browser automation, logged-in context, or judgement.
+- `collectors/direct-agent-template/` for sources that need LLM reasoning, e.g. browser automation, logged-in context, or judgement.
 
 Start with `collectors/README.md` and `docs/collector-authoring.md`.
 
@@ -134,7 +133,7 @@ Dry-run against fixtures before scheduling a collector. The shipped templates do
 
 Do not expose Keryx without external authentication.
 
-The Keryx server has no built-in authentication in V1. Safe defaults are local only:
+The Keryx server has no built-in authentication. Safe defaults are local only:
 
 ```json
 {
