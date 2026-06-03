@@ -1,7 +1,7 @@
 # Keryx Product Requirements Document
 
 **Date:** 2026-05-31
-**Project path:** `~/Projects/keryx`
+**Project path:** repository root (`.`)
 **Kanban board:** `keryx`
 **Status:** Product/design specification only. No implementation has been started.
 
@@ -47,7 +47,7 @@ All Keryx-specific durable artefacts should use the `keryx` prefix.
 
 | Artefact | Name / pattern |
 |---|---|
-| Project directory | `~/Projects/keryx` |
+| Project directory | repository root (`.`) |
 | Kanban board | `keryx` |
 | Skill category | `keryx/` under the Hermes skills directory |
 | Skill category description | `keryx/DESCRIPTION.md` |
@@ -568,7 +568,7 @@ Blocked task should remain visible in Keryx and, where a delivery target is conf
 The web UI lives under:
 
 ```text
-~/Projects/keryx
+.
 ```
 
 Likely eventual hosting pattern follows existing local services:
@@ -1047,7 +1047,7 @@ This section is not an instruction to implement now. It records a likely future 
 
 ### Phase 0 — Documentation only
 
-- Create `~/Projects/keryx/PRD.md`.
+- Create `docs/archive/v001/PRD.md` from the repository root.
 - No code.
 - No Kanban board.
 - No cron jobs.
@@ -1055,7 +1055,7 @@ This section is not an instruction to implement now. It records a likely future 
 
 ### Phase 1 — Skeleton and read-only UI
 
-- Create Keryx TypeScript web app skeleton under `~/Projects/keryx` using Svelte + Vite for the client and Fastify for the server.
+- Create Keryx TypeScript web app skeleton under the repository root (`.`) using Svelte + Vite for the client and Fastify for the server.
 - Add `opsctl` skeleton.
 - Read Kanban board `keryx` via Hermes CLI or safe wrapper.
 - Display task cards from JSON bodies.
@@ -1094,7 +1094,7 @@ This section is not an instruction to implement now. It records a likely future 
 
 ### 15.1 PRD acceptance
 
-- PRD exists at `~/Projects/keryx/PRD.md`.
+- PRD exists at `docs/archive/v001/PRD.md` from the repository root.
 - It captures project name, board name, skill names, cron naming, and V1 decisions.
 - It clearly states no implementation has started.
 
@@ -1127,7 +1127,7 @@ These do not block the PRD.
 ## 17. Key design decisions already made
 
 - Project name: `keryx`.
-- Web UI path: `~/Projects/keryx`.
+- Web UI path: repository root (`.`).
 - Kanban board: `keryx`.
 - Collector cron prefix: `keryx-`.
 - Skills: `keryx-worker`, `keryx-collector`, and `keryx-collector-creator`.
@@ -1158,7 +1158,10 @@ Target repository shape:
 ```text
 keryx/
 ├── README.md
-├── PRD.md
+├── docs/
+│   └── archive/
+│       └── v001/
+│           └── PRD.md
 ├── package.json
 ├── keryx.config.example.json
 ├── keryx-setup.sh

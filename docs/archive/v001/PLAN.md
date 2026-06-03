@@ -2,19 +2,19 @@
 
 > **For Hermes:** Implement this plan through the `keryx-development` Kanban board task-by-task. Keep the workflow serial unless a task explicitly creates an isolated git worktree.
 
-**Goal:** Build a fully functioning Keryx web UI, safe `opsctl` wrapper, installer script, bundled skills, collector templates, and documentation inside `~/Projects/keryx`.
+**Goal:** Build a fully functioning Keryx web UI, safe `opsctl` wrapper, installer script, bundled skills, collector templates, and documentation inside the repository root (`.`).
 
 **Architecture:** Keryx is a thin TypeScript control surface over Hermes Kanban. The central register remains the Hermes Kanban board `keryx`; Keryx adds schema validation, a Fastify API, a Svelte inbox UI, and an `opsctl` CLI that wraps allowed Hermes commands. Keryx must not create a second task database or duplicate Hermes execution.
 
 **Tech Stack:** TypeScript, Svelte + Vite, Fastify, Vitest, Playwright, AJV JSON-schema validation, Node CLI scripts, POSIX shell installer.
 
-**Source of truth:** `PRD.md` in this repository. Ignore the future native-app/Tauri section for this implementation.
+**Source of truth:** `docs/archive/v001/PRD.md` from the repository root. Ignore the future native-app/Tauri section for this implementation.
 
 ---
 
 ## Global constraints
 
-- Implement only in `~/Projects/keryx`.
+- Implement only in the repository root (`.`).
 - Do not install the bundled Keryx skills into the local Hermes profile during implementation.
 - Do not create real collector cron jobs during implementation.
 - Do not create or mutate the user's real `keryx` Kanban board during tests except through explicitly mocked or temporary test fixtures.
@@ -28,8 +28,11 @@
 ```text
 keryx/
 ├── README.md
-├── PLAN.md
-├── PRD.md
+├── docs/
+│   └── archive/
+│       └── v001/
+│           ├── PLAN.md
+│           └── PRD.md
 ├── package.json
 ├── package-lock.json
 ├── tsconfig.json
@@ -158,7 +161,7 @@ keryx/
    - valid execution decision comment;
    - valid collector state without raw source content.
 3. Run the targeted tests and verify RED.
-4. Implement JSON schemas matching `PRD.md` sections 5, 7.3, and 6.3.
+4. Implement JSON schemas matching `docs/archive/v001/PRD.md` sections 5, 7.3, and 6.3.
 5. Implement typed validation helpers that return `{ ok: true, value }` or `{ ok: false, errors }`.
 6. Keep malformed cards visible to callers by returning validation errors, not throwing opaque exceptions.
 7. Run `npm test -- --run tests/unit/schema-validation.test.ts`, then `npm test`.
@@ -334,7 +337,7 @@ keryx/
    - frontmatter contains only useful `name` and `description` fields where appropriate;
    - no individual skill directory contains extraneous README/CHANGELOG files;
    - the category `DESCRIPTION.md` exists;
-   - critical phrases from `PRD.md` are present: untrusted source content, `keryx.action_item.v1`, trusted execution decision, blocked card creation, cursor safety.
+   - critical phrases from `docs/archive/v001/PRD.md` are present: untrusted source content, `keryx.action_item.v1`, trusted execution decision, blocked card creation, cursor safety.
 4. Verify RED.
 5. Write `keryx-worker` for execution: parse JSON, validate schema, find latest trusted execution decision comment, treat source strings as untrusted, execute selected option, re-query source systems where needed, complete/block with concise metadata.
 6. Write `keryx-collector` for collector cron jobs: classify only actionable items, create blocked cards on board `keryx`, attach `--skill keryx-worker`, use stable idempotency keys, avoid raw source persistence, advance cursors only after handling.

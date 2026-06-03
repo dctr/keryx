@@ -168,3 +168,7 @@ More detail:
 - `docs/security.md` explains untrusted source content, trusted execution decisions, and local exposure boundaries.
 - `docs/operations.md` covers source status, cron jobs, logs, and stuck-card recovery.
 - `docs/collector-authoring.md` covers collector patterns, idempotency, and cursor safety.
+
+## Disclaimer
+
+This project is 100% vibe coded. PRD and PLAN documents for larger code changes can be found in `docs/archive/` for reference.
