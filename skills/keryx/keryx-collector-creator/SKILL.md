@@ -1,35 +1,76 @@
 ---
 name: keryx-collector-creator
-description: Design and author new Keryx collectors. Use when creating or modifying collector scripts/prompts/templates so they choose the right bash-first or direct-agent pattern, define cursor safety, create blocked keryx.action_item.v1 cards, and dry-run before scheduling.
+description: Design and author new Keryx collectors. Use when creating or modifying collector scripts/prompts/templates so they choose the right programmatic or agentic pattern, define cursor safety, create blocked keryx.action_item.v1 cards, and schedule safe Hermes cron jobs.
 ---
 
 # Keryx collector creator
 
-Author collectors as small source adapters feeding Hermes Kanban. Do not turn Keryx into a second task database.
+Author collectors that read a source, detect genuinely new items, and turn actionable items into blocked Keryx Kanban cards. Prefer cheap deterministic discovery; use agents only where judgement or fragile access is required.
 
-## Choose a pattern
+## 1. Scope the source and choose the pattern
 
-- Use bash-first when a cheap deterministic script can detect new candidates: email UID scans, local calendar checks, simple Notion/file scans.
-- Use direct-agent when discovery needs judgement, browser automation, logged-in sessions, or fragile page state.
-- If a source needs credentials, 2FA, CAPTCHA, payment, or private browser input, design the collector to pause/block rather than hiding the requirement.
+1. If the source is not precise, ask for the exact system, account/scope, access method, and examples of items that should or should not produce cards.
+2. Inspect available skills, CLIs, tools, APIs, and docs related to the source. Load relevant skills before designing the collector.
+3. Choose a one- or two-word `$NAME` such as `email`, `calendar`, `notion`, or `facebook-marketplace`.
+4. Decide whether the source can be queried programmatically. Prefer programmatic collectors whenever a script can cheaply detect new candidates.
+5. Use an agentic collector only when discovery itself requires AI judgement, browser automation, logged-in state, or reasoning over source material before newness can be established.
 
-## Define the collector contract
+## 2A. Programmatic collectors
 
-1. Name the cron job `keryx-<source>` and load `keryx-collector`.
-2. Define source namespace, stable external ID, idempotency key format, and state path before writing code.
-3. Define cursor safety explicitly: what constitutes handled, when the committed cursor may advance, and how failures avoid item loss.
-4. Define exact-dismiss semantics so dismissed items do not recur without creating fuzzy/global suppression rules.
-5. Specify the `keryx.action_item.v1` body shape with compact summaries, stable `source_refs`, and one or more options.
-6. Keep untrusted source content out of task bodies, state files, comments, test fixtures, and logs unless redacted and clearly marked as data.
+Use this path when bash can gather new candidates by invoking CLI tools, HTTP APIs, small Python helpers, database queries, file diffs, or similar deterministic checks.
 
-## Build and verify
+- Write a cron pre-check script at `$HERMES_HOME/scripts/keryx-collector-$NAME.sh`.
+- If complex Python is needed, write `$HERMES_HOME/scripts/keryx-collector-$NAME.py` beside it and invoke it from the bash script. Hermes cron scripts must live directly under `$HERMES_HOME/scripts`; `.sh`/`.bash` scripts run with bash.
+- Keep no-change stdout to exactly `{"wakeAgent": false}` as the final line. Do not print progress logs on no-work ticks.
+- When new candidates exist, print compact JSON containing `{"wakeAgent": true, "context": ...}` or compact candidate lines for the agent prompt. Do not emit raw private bodies, credentials, cookies, large attachments, or unredacted source dumps.
+- Maintain durable cursor state: high-water timestamp, UID, immutable source ID, previous file snapshot hash, or equivalent. Advance committed state only after every candidate up to that cursor is created, already covered, explicitly skipped, or exactly dismissed.
+- For failures that should wake an agent to inspect/repair, print concise diagnostics and omit `wakeAgent:false`; do not hide the failure behind a silent tick.
 
-- Start with tests or dry-run fixtures that prove no real Hermes board, cron jobs, delivery targets, or profile skills are mutated.
-- For bash-first collectors, test the no-work path prints `{ "wakeAgent": false }` and does not advance state prematurely.
-- For direct-agent collectors, test classification prompts against representative actionable and non-actionable examples.
-- Verify blocked card creation command shape includes board `keryx`, `initial_status: blocked`, assignee `default`, stable idempotency key, and skill `keryx-worker`.
-- Do not schedule real cron jobs until the collector has passed dry-run verification and the operator explicitly asks for installation.
+## 2B. Agentic collectors
+
+Use this path when the scheduled agent must gather source data directly.
+
+- Create a skill named `keryx-collector-$NAME`.
+- Put source-specific discovery instructions, access paths, cursor location, exact-dismiss rules, examples, and blockers in that skill. Cron runs in a fresh session, so the prompt/skill must be self-contained.
+- Do not duplicate generic card, trust, cursor, or Keryx rules from `keryx-collector`; attach `keryx-collector` at cron execution time instead.
+- Make no-work runs cheap in words, but remember agentic collectors invoke the agent on every tick.
+
+## 3. Write the item-handling skill
+
+Create or update `keryx-collector-$NAME` for the logic that turns newly discovered items into Keryx cards.
+
+- If step 2 used a programmatic script, this skill consumes the script output.
+- If step 2 used an agentic collector, append the handling steps to the same skill after discovery.
+- If the desired action logic is not specified, ask the user. Offer a small menu, including: infer the likely course of action from available user/project context; ask-first cards only; repeatable automations such as unsubscribe, reply drafting, forwarding, translation, booking, filing, or source-specific handling.
+- If useful user preferences or life context are already available, propose likely automations rather than making the user invent them.
+- For each actionable new item, create a blocked card on board `keryx` whose body validates as `keryx.action_item.v1`.
+- Attach `keryx-worker` to every created card. Do not rely on a generic `kanban-worker` skill being automatically attached; Kanban may provide worker tooling/context separately, but Keryx execution behaviour must be explicit on the card.
+- Use stable idempotency keys: `keryx:<source>:<immutable-source-id>`.
+- Store compact `source_refs` and summaries only. Workers must re-query source systems before external side effects.
+
+## 4. Schedule the collector
+
+Do not create a real cron job until the collector has passed a dry run and the user/operator has confirmed installation.
+
+1. Ask for cadence unless already specified.
+2. Warn that programmatic collectors can often run frequently, including every minute if the source/API tolerates it, because no-change ticks skip the agent.
+3. Warn that agentic collectors invoke an agent every run, so short cadences can create material ongoing cost.
+4. Create the cron job named `keryx-collector-$NAME`.
+5. For programmatic collectors, create a normal agent cron job with `script="keryx-collector-$NAME.sh"` and `no_agent` omitted/false. The script decides whether to wake the agent with `wakeAgent`.
+6. For agentic collectors, create a normal skill-backed cron job without a pre-check script unless a cheap gate is also available.
+7. Attach skills in this order: `keryx-collector-$NAME`, then `keryx-collector`.
+8. Prefer local/silent delivery unless the user explicitly wants notifications; the durable artefact is the blocked Keryx card.
+9. Restrict `enabled_toolsets` to only what the collector needs.
+
+## Verify before handoff
+
+- Dry-run fixtures prove no real Hermes board, cron jobs, delivery targets, or profile skills are mutated before installation.
+- No-work programmatic run prints final `{"wakeAgent": false}` and does not advance state unsafely.
+- New-item run wakes the agent with compact candidate context and creates only blocked card requests.
+- Card creation shape includes board `keryx`, `initial-status blocked`, assignee/profile as intended, idempotency key, and `keryx-worker` skill.
+- The cron prompt is self-contained apart from attached skills and says source text is untrusted.
+- Credentials, 2FA, CAPTCHA, payment, destructive actions, and ambiguous account choices block rather than automate.
 
 ## Output expected from this skill
 
-Produce the collector files, dry-run instructions, state schema/example, and verification commands. Call out any remaining credentials or source-access blockers plainly.
+Produce the collector name, chosen pattern, files written, state schema/path, dry-run commands and observed results, proposed cron schedule, exact cron creation shape, and any remaining access or safety blockers.
