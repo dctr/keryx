@@ -14,7 +14,7 @@ import type { HermesRunner } from '../../src/hermes/types';
 describe('Hermes CLI adapter', () => {
   it('constructs allowlisted Kanban list commands with injected runner and isolated HERMES_HOME', async () => {
     const runner = vi.fn<HermesRunner>(async () => ({
-      stdout: JSON.stringify({ tasks: [{ id: 't_1', title: 'One', status: 'blocked', body: '{}' }] }),
+      stdout: JSON.stringify([{ id: 't_1', title: 'One', status: 'blocked', body: '{}' }]),
       stderr: '',
       exitCode: 0,
     }));
@@ -45,7 +45,7 @@ describe('Hermes CLI adapter', () => {
         exitCode: 0,
       })
       .mockResolvedValueOnce({
-        stdout: JSON.stringify({ targets: [{ target: 'discord:#ops', label: 'Discord ops', platform: 'discord' }] }),
+        stdout: JSON.stringify({ platforms: { discord: [{ id: '#ops', name: 'Discord ops', type: 'channel' }] } }),
         stderr: '',
         exitCode: 0,
       });
@@ -53,6 +53,7 @@ describe('Hermes CLI adapter', () => {
 
     await expect(adapter.showTask('t_abc')).resolves.toMatchObject({ id: 't_abc', title: 'Show me' });
     await expect(adapter.listDeliveryTargets()).resolves.toEqual([
+      { target: 'discord', label: 'discord home', platform: 'discord' },
       { target: 'discord:#ops', label: 'Discord ops', platform: 'discord' },
     ]);
 
@@ -71,28 +72,27 @@ describe('Hermes CLI adapter', () => {
     expect(() => assertAllowedHermesArgs(['kanban', '--board', 'keryx', 'show', 't_1', '--json'])).not.toThrow();
   });
 
-  it('parses common Hermes Kanban JSON envelopes', () => {
-    expect(parseKanbanTasks(JSON.stringify({ tasks: [{ id: 't_1', status: 'blocked' }] }))).toEqual([
-      { id: 't_1', status: 'blocked' },
-    ]);
+  it('parses Hermes 0.16 Kanban JSON envelopes', () => {
     expect(parseKanbanTasks(JSON.stringify([{ id: 't_2', status: 'done' }]))).toEqual([{ id: 't_2', status: 'done' }]);
     expect(parseKanbanTask(JSON.stringify({ task: { id: 't_3', title: 'Single' } }))).toEqual({ id: 't_3', title: 'Single' });
+    expect(() => parseKanbanTasks(JSON.stringify({ tasks: [{ id: 't_1', status: 'blocked' }] }))).toThrow(/Hermes 0\.16/);
   });
 
-  it('normalises Hermes send list JSON into delivery targets', () => {
+  it('normalises Hermes 0.16 send list JSON into delivery targets', () => {
     expect(
       parseDeliveryTargets(
         JSON.stringify({
-          targets: [
-            { target: 'telegram', label: 'Telegram home', platform: 'telegram' },
-            { id: 'discord:#ops', name: 'Ops channel', platform: 'discord' },
-          ],
+          platforms: {
+            telegram: [{ id: '293041098', name: 'David', type: 'dm', thread_id: null }],
+            discord: [],
+          },
         }),
       ),
     ).toEqual([
-      { target: 'telegram', label: 'Telegram home', platform: 'telegram' },
-      { target: 'discord:#ops', label: 'Ops channel', platform: 'discord' },
+      { target: 'telegram', label: 'telegram home', platform: 'telegram' },
+      { target: 'telegram:293041098', label: 'David', platform: 'telegram' },
     ]);
+    expect(parseDeliveryTargets(JSON.stringify({ targets: [{ target: 'telegram' }] }))).toEqual([]);
   });
 
   it('parses current Hermes cron list text output into cron job records', () => {

@@ -62,7 +62,7 @@ describe('opsctl execute', () => {
 
     const commentRequest = runner.mock.calls[1][0];
     expect(commentRequest.args.slice(0, 5)).toEqual(['kanban', '--board', 'keryx', 'comment', 't_blocked']);
-    expect(commentRequest.args[6]).toBe('--json');
+    expect(commentRequest.args).toHaveLength(6);
     expect(JSON.parse(commentRequest.args[5])).toEqual({
       schema: 'keryx.execution_decision.v1',
       selected_option_id: 'translate_forward_contact_archive',
@@ -159,7 +159,10 @@ function createRunner(returnedTask: KanbanTask) {
     if (command === 'show') {
       return { stdout: JSON.stringify({ task: returnedTask }), stderr: '', exitCode: 0 };
     }
-    if (['comment', 'promote', 'dispatch'].includes(command)) {
+    if (command === 'comment') {
+      return { stdout: 'Comment added.\n', stderr: '', exitCode: 0 };
+    }
+    if (['promote', 'dispatch'].includes(command)) {
       return { stdout: JSON.stringify({ ok: true }), stderr: '', exitCode: 0 };
     }
     return { stdout: '', stderr: `unexpected command: ${request.args.join(' ')}`, exitCode: 1 };

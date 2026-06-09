@@ -134,13 +134,13 @@ set -eu
 printf '%s|%s\n' "\${HERMES_HOME:-}" "$*" >> "\${FAKE_HERMES_LOG:?}"
 case "$*" in
   'send --list --json')
-    printf '%s\n' '{"targets":[{"target":"telegram","label":"Telegram home","platform":"telegram"}]}'
+    printf '%s\n' '{"platforms":{"telegram":[{"id":"293041098","name":"David","type":"dm","thread_id":null}]}}'
     ;;
   'kanban boards create keryx --name Keryx')
     printf '%s\n' '{"ok":true,"board":"keryx"}'
     ;;
   'kanban --board keryx list --status blocked --json')
-    printf '%s\n' '{"tasks":[]}'
+    printf '%s\n' '[]'
     ;;
   'cron list --all')
     printf '%s\n' '  job_1 [active]'

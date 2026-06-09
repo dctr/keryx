@@ -19,7 +19,7 @@ export function createFakeHermes(options: FakeHermesOptions = {}): FakeHermes {
     requests.push(request);
 
     if (matches(request.args, ['kanban', '--board']) && request.args.includes('list')) {
-      return ok({ tasks });
+      return ok(tasks);
     }
 
     if (matches(request.args, ['kanban', '--board']) && request.args.includes('show')) {
@@ -29,14 +29,22 @@ export function createFakeHermes(options: FakeHermesOptions = {}): FakeHermes {
     }
 
     if (matches(request.args, ['send', '--list'])) {
-      return ok({ targets: deliveryTargets });
+      return ok(toHermes16DeliveryTargets(deliveryTargets));
     }
 
     if (matches(request.args, ['cron', 'list'])) {
       return ok({ jobs: [] });
     }
 
-    if (matches(request.args, ['kanban', '--board']) && ['comment', 'promote', 'archive', 'dispatch'].includes(request.args[3])) {
+    if (matches(request.args, ['kanban', '--board']) && request.args[3] === 'comment') {
+      return { stdout: 'Comment added.\n', stderr: '', exitCode: 0 };
+    }
+
+    if (matches(request.args, ['kanban', '--board']) && request.args[3] === 'archive') {
+      return { stdout: 'Archived 1 task.\n', stderr: '', exitCode: 0 };
+    }
+
+    if (matches(request.args, ['kanban', '--board']) && ['promote', 'dispatch'].includes(request.args[3])) {
       return ok({ ok: true });
     }
 
@@ -48,6 +56,27 @@ export function createFakeHermes(options: FakeHermesOptions = {}): FakeHermes {
 
 function matches(args: string[], prefix: string[]): boolean {
   return prefix.every((part, index) => args[index] === part);
+}
+
+function toHermes16DeliveryTargets(deliveryTargets: DeliveryTarget[]): unknown {
+  const platforms: Record<string, Array<Record<string, unknown>>> = {};
+
+  for (const target of deliveryTargets) {
+    const [platformFromTarget, ...idParts] = target.target.split(':');
+    const platform = target.platform ?? platformFromTarget;
+    const id = idParts.join(':');
+    platforms[platform] ??= [];
+    if (!id && target.target === platform) {
+      continue;
+    }
+    platforms[platform].push({
+      id: id || target.target,
+      name: target.label ?? target.target,
+      type: 'test',
+    });
+  }
+
+  return { platforms };
 }
 
 function ok(value: unknown) {

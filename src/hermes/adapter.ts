@@ -43,7 +43,7 @@ export class HermesCliAdapter {
   }
 
   async commentTask(taskId: string, body: string): Promise<unknown> {
-    return parseJson(await this.run(['kanban', '--board', this.config.board, 'comment', taskId, body, '--json']));
+    return this.run(['kanban', '--board', this.config.board, 'comment', taskId, body]);
   }
 
   async promoteTask(taskId: string, reason = 'approved from Keryx'): Promise<unknown> {
@@ -51,7 +51,7 @@ export class HermesCliAdapter {
   }
 
   async archiveTask(taskId: string): Promise<unknown> {
-    return parseJson(await this.run(['kanban', '--board', this.config.board, 'archive', taskId, '--json']));
+    return this.run(['kanban', '--board', this.config.board, 'archive', taskId]);
   }
 
   async dispatch(): Promise<unknown> {
@@ -108,11 +108,13 @@ function isAllowedKanbanArgs(args: readonly string[]): boolean {
     case 'list':
       return isAllowedKanbanListRest(rest);
     case 'show':
-    case 'archive':
       return rest.length === 2 && isNonEmptyString(rest[0]) && rest[1] === '--json';
-    case 'comment':
     case 'promote':
       return rest.length === 3 && isNonEmptyString(rest[0]) && isNonEmptyString(rest[1]) && rest[2] === '--json';
+    case 'comment':
+      return rest.length >= 2 && rest.every(isNonEmptyString);
+    case 'archive':
+      return rest.length >= 1 && rest.every(isNonEmptyString);
     case 'dispatch':
       return rest.length === 1 && rest[0] === '--json';
     default:
@@ -148,19 +150,19 @@ function isAllowedCronArgs(args: readonly string[]): boolean {
 
 export function parseKanbanTasks(json: string): KanbanTask[] {
   const parsed = parseJson(json);
-  const candidates = Array.isArray(parsed) ? parsed : getArrayProperty(parsed, 'tasks') ?? getArrayProperty(parsed, 'items');
-
-  if (!candidates) {
-    throw new Error('Hermes Kanban JSON did not contain a task array');
+  if (!Array.isArray(parsed)) {
+    throw new Error('Hermes 0.16 Kanban list JSON did not contain a task array');
   }
 
-  return candidates.map(normaliseKanbanTask);
+  return parsed.map(normaliseKanbanTask);
 }
 
 export function parseKanbanTask(json: string): KanbanTask {
   const parsed = parseJson(json);
-  const candidate = isPlainObject(parsed) && isPlainObject(parsed.task) ? parsed.task : parsed;
-  return normaliseKanbanTask(candidate);
+  if (!isPlainObject(parsed) || !isPlainObject(parsed.task)) {
+    throw new Error('Hermes 0.16 Kanban show JSON did not contain a task object');
+  }
+  return normaliseKanbanTask(parsed.task);
 }
 
 export function parseDeliveryTargets(json: string): DeliveryTarget[] {
@@ -228,29 +230,50 @@ export function parseCronListText(text: string): Array<Record<string, unknown>> 
 }
 
 function findDeliveryTargetCandidates(value: unknown): unknown[] {
-  if (Array.isArray(value)) {
-    return value;
-  }
-
   if (!isPlainObject(value)) {
     return [];
   }
 
-  for (const key of ['targets', 'channels', 'contacts', 'results']) {
-    const array = getArrayProperty(value, key);
-    if (array) {
-      return array;
+  return getPlatformDeliveryTargetCandidates(value);
+}
+
+function getPlatformDeliveryTargetCandidates(value: Record<string, unknown>): unknown[] {
+  if (!isPlainObject(value.platforms)) {
+    return [];
+  }
+
+  const candidates: unknown[] = [];
+  for (const [platform, targets] of Object.entries(value.platforms)) {
+    if (!Array.isArray(targets) || targets.length === 0) {
+      continue;
+    }
+
+    candidates.push({ target: platform, label: `${platform} home`, platform });
+
+    for (const target of targets) {
+      if (typeof target === 'string') {
+        candidates.push({ target: `${platform}:${target}`, platform });
+        continue;
+      }
+
+      if (!isPlainObject(target)) {
+        continue;
+      }
+
+      const explicitTarget = firstString(target.target, target.value, target.address);
+      const id = firstString(target.id);
+      candidates.push({
+        ...target,
+        target: explicitTarget ?? (id ? `${platform}:${id}` : undefined),
+        platform,
+      });
     }
   }
 
-  return Object.values(value).flatMap((entry) => (Array.isArray(entry) ? entry : []));
+  return candidates;
 }
 
 function normaliseDeliveryTarget(value: unknown): DeliveryTarget | null {
-  if (typeof value === 'string') {
-    return { target: value };
-  }
-
   if (!isPlainObject(value)) {
     return null;
   }
@@ -284,13 +307,6 @@ function parseJson(json: string): unknown {
   } catch (error) {
     throw new Error(`Invalid Hermes JSON output: ${error instanceof Error ? error.message : String(error)}`);
   }
-}
-
-function getArrayProperty(value: unknown, key: string): unknown[] | undefined {
-  if (isPlainObject(value) && Array.isArray(value[key])) {
-    return value[key];
-  }
-  return undefined;
 }
 
 function firstString(...values: unknown[]): string | undefined {

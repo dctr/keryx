@@ -64,7 +64,7 @@ describe('opsctl dismiss', () => {
 
     const commentRequest = runner.mock.calls[1][0];
     expect(commentRequest.args.slice(0, 5)).toEqual(['kanban', '--board', 'keryx', 'comment', 't_dismiss']);
-    expect(commentRequest.args[6]).toBe('--json');
+    expect(commentRequest.args).toHaveLength(6);
     expect(JSON.parse(commentRequest.args[5])).toEqual({
       schema: 'keryx.dismissal_decision.v1',
       dismissal_scope: 'exact_item',
@@ -77,7 +77,7 @@ describe('opsctl dismiss', () => {
     });
     expect(runner).toHaveBeenNthCalledWith(3, {
       bin: 'hermes',
-      args: ['kanban', '--board', 'keryx', 'archive', 't_dismiss', '--json'],
+      args: ['kanban', '--board', 'keryx', 'archive', 't_dismiss'],
       env: {},
     });
   });
@@ -132,8 +132,11 @@ function createRunner(returnedTask: KanbanTask) {
     if (command === 'show') {
       return { stdout: JSON.stringify({ task: returnedTask }), stderr: '', exitCode: 0 };
     }
-    if (['comment', 'archive'].includes(command)) {
-      return { stdout: JSON.stringify({ ok: true }), stderr: '', exitCode: 0 };
+    if (command === 'comment') {
+      return { stdout: 'Comment added.\n', stderr: '', exitCode: 0 };
+    }
+    if (command === 'archive') {
+      return { stdout: 'Archived 1 task.\n', stderr: '', exitCode: 0 };
     }
     return { stdout: '', stderr: `unexpected command: ${request.args.join(' ')}`, exitCode: 1 };
   });
