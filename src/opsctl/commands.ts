@@ -54,6 +54,7 @@ Read-only commands:
   validate-state <file>          Validate a collector-state JSON file
 
 Mutating commands:
+  create-card <file>              Validate and create a blocked Keryx Kanban card
   execute <task_id> --option <id> [--feedback <text>] [--dispatch]
                                   Append the user's execution decision and promote a card
   dismiss <task_id> [--reason <text>]
@@ -101,6 +102,8 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
         return validateCard(parsed.positionals[0]);
       case 'validate-state':
         return validateState(parsed.positionals[0]);
+      case 'create-card':
+        return await createCard(parsed.positionals[0], adapter);
       case 'list':
         return listCards(parsed, adapter);
       case 'show':
@@ -227,6 +230,20 @@ function validateState(filePath: string | undefined): CommandResult {
   }
 
   return ok(`OK valid collector state: ${validation.value.source}`);
+}
+
+async function createCard(filePath: string | undefined, adapter: HermesCliAdapter): Promise<CommandResult> {
+  if (!filePath) {
+    return fail('FAIL create-card requires a JSON file path', 2);
+  }
+
+  const parsed = parseJsonFile(filePath);
+  const validation = validateActionItem(parsed);
+  if (!validation.ok) {
+    return fail(`FAIL invalid action card: ${filePath}\n${formatValidationErrors(validation.errors)}`);
+  }
+
+  return ok(json(await adapter.createTaskFromActionItem(validation.value)));
 }
 
 async function listCards(parsed: ParsedArgs, adapter: HermesCliAdapter): Promise<CommandResult> {

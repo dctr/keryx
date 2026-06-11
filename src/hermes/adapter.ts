@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 
 import type { KeryxConfig } from '../config';
+import type { ActionItem } from '../schemas/actionItem';
 import type { DeliveryTarget, HermesRunRequest, HermesRunResult, HermesRunner, KanbanTask } from './types';
 
 export interface ListTaskOptions {
@@ -40,6 +41,33 @@ export class HermesCliAdapter {
 
   async showTask(taskId: string): Promise<KanbanTask> {
     return parseKanbanTask(await this.run(['kanban', '--board', this.config.board, 'show', taskId, '--json']));
+  }
+
+  async createTaskFromActionItem(actionItem: ActionItem): Promise<unknown> {
+    return parseJson(
+      await this.run([
+        'kanban',
+        '--board',
+        this.config.board,
+        'create',
+        actionItem.title,
+        '--body',
+        JSON.stringify(actionItem),
+        '--assignee',
+        this.config.defaultAssignee,
+        '--tenant',
+        actionItem.source,
+        '--idempotency-key',
+        actionItem.idempotency_key,
+        '--created-by',
+        actionItem.collector,
+        '--skill',
+        'keryx:keryx-worker',
+        '--initial-status',
+        'blocked',
+        '--json',
+      ]),
+    );
   }
 
   async commentTask(taskId: string, body: string): Promise<unknown> {
@@ -109,6 +137,8 @@ function isAllowedKanbanArgs(args: readonly string[]): boolean {
       return isAllowedKanbanListRest(rest);
     case 'show':
       return rest.length === 2 && isNonEmptyString(rest[0]) && rest[1] === '--json';
+    case 'create':
+      return isAllowedKanbanCreateRest(rest);
     case 'promote':
       return rest.length === 3 && isNonEmptyString(rest[0]) && isNonEmptyString(rest[1]) && rest[2] === '--json';
     case 'comment':
@@ -134,6 +164,28 @@ function isAllowedKanbanListRest(rest: readonly string[]): boolean {
   }
 
   return remaining.length === 1 && remaining[0] === '--json';
+}
+
+function isAllowedKanbanCreateRest(rest: readonly string[]): boolean {
+  return (
+    rest.length === 16 &&
+    isNonEmptyString(rest[0]) &&
+    rest[1] === '--body' &&
+    isNonEmptyString(rest[2]) &&
+    rest[3] === '--assignee' &&
+    isNonEmptyString(rest[4]) &&
+    rest[5] === '--tenant' &&
+    isNonEmptyString(rest[6]) &&
+    rest[7] === '--idempotency-key' &&
+    isNonEmptyString(rest[8]) &&
+    rest[9] === '--created-by' &&
+    isNonEmptyString(rest[10]) &&
+    rest[11] === '--skill' &&
+    rest[12] === 'keryx:keryx-worker' &&
+    rest[13] === '--initial-status' &&
+    rest[14] === 'blocked' &&
+    rest[15] === '--json'
+  );
 }
 
 function isAllowedSendArgs(args: readonly string[]): boolean {

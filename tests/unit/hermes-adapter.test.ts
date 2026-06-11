@@ -64,6 +64,38 @@ describe('Hermes CLI adapter', () => {
     expect(secondRequest?.args).toEqual(['send', '--list', '--json']);
   });
 
+  it('allowlists only the central Keryx Kanban create-card shape', () => {
+    const allowedCreateArgs = [
+      'kanban',
+      '--board',
+      'keryx',
+      'create',
+      'Support request: account access needs review',
+      '--body',
+      '{"schema":"keryx.action_item.v1"}',
+      '--assignee',
+      'default',
+      '--tenant',
+      'email',
+      '--idempotency-key',
+      'keryx:email:support-inbox:INBOX:35680',
+      '--created-by',
+      'keryx-email',
+      '--skill',
+      'keryx:keryx-worker',
+      '--initial-status',
+      'blocked',
+      '--json',
+    ];
+
+    expect(() => assertAllowedHermesArgs(allowedCreateArgs)).not.toThrow();
+    expect(() => assertAllowedHermesArgs(replaceArg(allowedCreateArgs, 16, 'keryx-worker'))).toThrow(/not allowlisted/i);
+    expect(() => assertAllowedHermesArgs(replaceArg(allowedCreateArgs, 18, 'ready'))).toThrow(/not allowlisted/i);
+    expect(() => assertAllowedHermesArgs([...allowedCreateArgs.slice(0, -1), '--priority', '10', '--json'])).toThrow(
+      /not allowlisted/i,
+    );
+  });
+
   it('rejects non-allowlisted Hermes command shapes', () => {
     expect(() => assertAllowedHermesArgs(['config', 'path'])).toThrow(/not allowlisted/i);
     expect(() => assertAllowedHermesArgs(['kanban', '--board', 'keryx', 'delete', 't_1', '--json'])).toThrow(
@@ -137,3 +169,9 @@ describe('Hermes CLI adapter', () => {
     ]);
   });
 });
+
+function replaceArg(args: string[], index: number, value: string): string[] {
+  const copy = [...args];
+  copy[index] = value;
+  return copy;
+}
