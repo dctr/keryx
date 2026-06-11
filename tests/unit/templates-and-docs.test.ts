@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 const repoRoot = process.cwd();
 
 const requiredFiles = [
+  'AGENTS.md',
   'collectors/README.md',
   'collectors/bash-first-template/keryx-example-scan.sh',
   'collectors/bash-first-template/cron-prompt.md',
@@ -62,6 +63,22 @@ describe('collector templates and support docs', () => {
       expect(text).toContain('cursor safety');
       expect(text).toContain('initial-status blocked');
       expect(text).toContain('keryx-worker');
+    }
+  });
+
+  it('documents AGENTS.md guidance for the plugin-era workflow', () => {
+    const agents = readRequiredFile('AGENTS.md');
+
+    for (const phrase of [
+      'hermes-plugin/',
+      'hermes keryx doctor',
+      './bin/opsctl doctor',
+      'plugin is the Hermes-facing adapter',
+      'Keryx remains a thin control surface over Hermes Kanban',
+      'keryx:keryx-worker',
+      'plugin-qualified Keryx skill names',
+    ]) {
+      expect(agents, `AGENTS.md should mention ${phrase}`).toContain(phrase);
     }
   });
 

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Keryx is a Node 22+ TypeScript/Svelte/Fastify control surface over Hermes Kanban. It is intentionally thin: Kanban remains the source of truth; Keryx adds schemas, a safe `opsctl` wrapper, a local API, a web inbox, bundled skills, and collector templates.
+Keryx is a Node 22+ TypeScript/Svelte/Fastify control surface over Hermes Kanban. It is intentionally thin: Kanban remains the source of truth; Keryx adds schemas, a Hermes plugin named `keryx`, a safe `opsctl` fallback, a local API, a web inbox, plugin-registered skills, and collector templates.
 
 ## Commands
 
@@ -14,8 +14,9 @@ npm test                # Vitest unit and integration tests
 npm run build           # Vite client build plus server build
 npm run e2e             # Playwright tests; starts Vite on 127.0.0.1:5173
 npm start               # production-style local server on configured host/port
-./bin/opsctl doctor     # local Keryx/Hermes health check
 ./keryx-setup.sh --dry-run
+hermes keryx doctor     # plugin health check after setup
+./bin/opsctl doctor     # direct repo fallback health check
 ```
 
 Before committing code changes, run at least:
@@ -33,18 +34,19 @@ Also run `npm run typecheck` when touching Svelte/UI or shared types, `npm run b
 - `src/server/` — Fastify app, API routes, and server entrypoint.
 - `src/opsctl/` — CLI parsing, command handlers, and output formatting.
 - `src/hermes/` — allowlisted Hermes CLI adapter and test fakes.
+- `hermes-plugin/` — thin Hermes plugin adapter registering `hermes keryx ...` and repository-backed skills.
 - `src/schemas/` and `schemas/` — TypeScript validators and JSON Schema contracts.
 - `tests/unit/` — focused unit tests for schemas, command logic, UI helpers, docs expectations.
 - `tests/integration/` — CLI, API, static serving, and setup-script tests with fake Hermes harnesses.
 - `tests/e2e/` — Playwright browser tests.
-- `skills/keryx/` — bundled Hermes skills installed by setup; keep skill files concise and self-contained.
+- `skills/keryx/` — repository-backed Keryx skills registered by the plugin; keep skill files concise and self-contained.
 - `collectors/` — collector templates only; they must not create real cron jobs by themselves.
 - `docs/` — architecture, security, operations, collector authoring, and archived PRD/PLAN references.
 - `deploy/` — example Caddy/systemd files only; copy and review before real use.
 
 ## Architecture rules
 
-- Keep Keryx a thin control surface. Do not add a second task database or bypass Hermes Kanban as the central register.
+- The Keryx Hermes plugin is the Hermes-facing adapter; Keryx remains a thin control surface over Hermes Kanban. Do not add a second task database or bypass Hermes Kanban as the central register.
 - Route UI mutations through the same command logic as `opsctl` where practical; keep Kanban mutation rules centralised.
 - Keep Hermes command execution allowlisted in `src/hermes/adapter.ts`. Do not add generic shell/Hermes passthroughs.
 - Keryx action cards must validate as `keryx.action_item.v1`; execution decisions must validate as `keryx.execution_decision.v1`.
@@ -64,7 +66,7 @@ Also run `npm run typecheck` when touching Svelte/UI or shared types, `npm run b
 ## Collector rules
 
 - Prefer bash-first collectors when deterministic polling can cheaply detect candidates; use direct-agent collectors only when discovery needs browser automation, logged-in context, or judgement.
-- Create cards with `initial-status blocked`, attach `keryx-worker`, and use stable idempotency keys of the form `keryx:<source>:<immutable-source-id>`.
+- Create cards with `initial-status blocked`, attach `keryx:keryx-worker`, and use stable idempotency keys of the form `keryx:<source>:<immutable-source-id>`.
 - Advance committed cursor state only after card creation, explicit safe skip, or exact dismissal succeeds.
 - Exact dismiss state suppresses only the exact immutable source item, never fuzzy title matches or broad filters.
 - Dry-run collectors against fixtures before documenting or scheduling them.
@@ -81,6 +83,7 @@ Also run `npm run typecheck` when touching Svelte/UI or shared types, `npm run b
 
 - Keep `README.md` human-facing and concise; put deeper operational detail in `docs/` and link to it.
 - Update `AGENTS.md` in the same change when build commands, test commands, project structure, or safety boundaries change.
+- Use plugin-qualified Keryx skill names in examples, such as `keryx:keryx-worker`, `keryx:keryx-collector`, and `keryx:keryx-collector-creator`.
 - PRD and PLAN documents for larger historical changes live under `docs/archive/`; do not move them back to the repository root.
 
 ## Git workflow
