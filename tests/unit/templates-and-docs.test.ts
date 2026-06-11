@@ -49,6 +49,11 @@ const collectorWorkflowDocs = [
   'docs/collector-authoring.md',
 ] as const;
 
+const collectorSkillLoadDocs = [
+  ...collectorWorkflowDocs,
+  'collectors/bash-first-template/keryx-example-scan.sh',
+] as const;
+
 const workerAttachmentDocs = [
   'README.md',
   'AGENTS.md',
@@ -106,13 +111,14 @@ describe('collector templates and support docs', () => {
       expect(text, `${relativePath} should not document bare worker skill attachment`).not.toMatch(/attach(?:es|ing)? (?:the )?`keryx-worker` skill/i);
     }
 
-    for (const relativePath of collectorWorkflowDocs) {
+    for (const relativePath of collectorSkillLoadDocs) {
       const text = readRequiredFile(relativePath);
 
       expect(text, `${relativePath} should mention the plugin-qualified collector skill`).toContain('keryx:keryx-collector');
       expect(text, `${relativePath} should not document a bare collector skill load`).not.toContain('Skills: keryx-collector');
       expect(text, `${relativePath} should not document a bare collector skill load`).not.toContain('loads the `keryx-collector` skill');
       expect(text, `${relativePath} should not document a bare collector skill load`).not.toContain('Load the `keryx-collector` skill');
+      expect(text, `${relativePath} should not document a bare collector skill load`).not.toContain('using the keryx-collector skill');
     }
   });
 

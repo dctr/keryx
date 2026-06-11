@@ -13,7 +13,8 @@ set -euo pipefail
 #   {"wakeAgent": true, "candidates": [...]} when candidates need classification.
 #
 # The script intentionally does not call Hermes. A cron job can use this as a
-# pre-run script and pass its compact stdout to an agent using the keryx-collector skill.
+# pre-run script and pass its compact stdout to an agent using the
+# plugin-qualified keryx:keryx-collector skill.
 
 json_quote() {
   node --input-type=module - "$1" <<'NODE'

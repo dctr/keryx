@@ -85,6 +85,10 @@ describe('bundled Keryx skills', () => {
     expect(collectorCreatorText).not.toContain('Attach skills in this order: `keryx-collector-$NAME`, then `keryx-collector`');
     expect(collectorCreatorText).toContain('`keryx:keryx-collector-$NAME`');
     expect(collectorCreatorText).toContain('`keryx:keryx-collector`');
+
+    expect(workerText).toContain('`keryx:keryx-collector-creator`');
+    expect(workerText).toContain('`keryx:keryx-collector-$SOURCE`');
+    expect(workerText).not.toContain('inspect `keryx-collector-creator`');
   });
 
   it('points collectors to canonical hermes keryx card commands instead of embedded templates', () => {
