@@ -1,6 +1,7 @@
 import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { type KeryxConfig, loadConfig } from '../config';
 import { HermesCliAdapter } from '../hermes/adapter';
@@ -78,6 +79,8 @@ const SCHEMA_COMMANDS = {
     fileUrl: new URL('../../schemas/collector-state.v1.schema.json', import.meta.url),
   },
 } as const;
+
+const PROJECT_ROOT = resolveProjectRoot(dirname(fileURLToPath(import.meta.url)));
 
 export function getHelpText(): string {
   return HELP_TEXT;
@@ -423,7 +426,7 @@ async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, options: D
   const pluginCheck = checkInstalledPlugin(resolveHermesHome(config, options.env));
   lines.push(pluginCheck);
 
-  if (existsSync(join(options.cwd, 'package.json')) && existsSync(join(options.cwd, 'node_modules'))) {
+  if (hasInstalledDependencies(PROJECT_ROOT)) {
     lines.push({ level: 'OK', check: 'dependencies', message: 'project dependencies installed' });
   } else {
     lines.push({ level: 'FAIL', check: 'dependencies', message: 'run `npm install` from the Keryx project root' });
@@ -525,6 +528,34 @@ function isExecutable(path: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+function hasInstalledDependencies(projectRoot: string): boolean {
+  return existsSync(join(projectRoot, 'package.json')) && existsSync(join(projectRoot, 'node_modules'));
+}
+
+function resolveProjectRoot(startDirectory: string): string {
+  let current = startDirectory;
+
+  while (true) {
+    const packagePath = join(current, 'package.json');
+    if (existsSync(packagePath)) {
+      try {
+        const parsed = JSON.parse(readFileSync(packagePath, 'utf8')) as unknown;
+        if (isPlainObject(parsed) && parsed.name === 'keryx') {
+          return current;
+        }
+      } catch {
+        // Keep walking; a parent package.json may still identify the repo root.
+      }
+    }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      return startDirectory;
+    }
+    current = parent;
   }
 }
 

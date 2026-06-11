@@ -132,4 +132,40 @@ print(json.dumps({'calls': calls, 'first_exit_code': first_exit_code, 'second_ex
       check: false,
     });
   });
+
+  it('passes --help through to opsctl instead of argparse wrapper help', async () => {
+    const { stdout, stderr } = await runPython(`
+import argparse, importlib.util, json, pathlib
+plugin_path = pathlib.Path('hermes-plugin/__init__.py').resolve()
+spec = importlib.util.spec_from_file_location('keryx_plugin_under_test', plugin_path)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+calls = []
+class Completed:
+    returncode = 0
+
+def fake_run(argv, *, env, check):
+    calls.append({'argv': [str(item) for item in argv], 'check': check})
+    return Completed()
+
+parser = argparse.ArgumentParser(prog='hermes keryx')
+mod._setup_argparse(parser)
+args = parser.parse_args(['--help'])
+mod.subprocess.run = fake_run
+try:
+    args.func(args)
+except SystemExit as exc:
+    exit_code = exc.code
+else:
+    raise AssertionError('handler did not exit')
+print(json.dumps({'calls': calls, 'exit_code': exit_code}, sort_keys=True))
+`);
+
+    expect(stderr).toBe('');
+    const result = JSON.parse(stdout) as { calls: Array<{ argv: string[]; check: boolean }>; exit_code: number };
+
+    expect(result.exit_code).toBe(0);
+    expect(result.calls).toEqual([{ argv: [resolve(repoRoot, 'bin/opsctl'), '--help'], check: false }]);
+  });
 });

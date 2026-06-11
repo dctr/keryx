@@ -381,6 +381,39 @@ describe('read-only opsctl commands', () => {
     expect(runner).toHaveBeenCalledWith({ bin: process.execPath, args: ['send', '--list', '--json'], env: { HERMES_HOME: hermesHome } });
     expect(runner).toHaveBeenCalledWith({ bin: process.execPath, args: ['cron', 'list', '--all'], env: { HERMES_HOME: hermesHome } });
   });
+
+  it('checks project dependencies from the repository root when doctor is invoked outside the repo cwd', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    const outsideCwd = mkdtempSync(join(tmpdir(), 'keryx-doctor-outside-cwd-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    const runner = vi.fn<HermesRunner>(async (request) => {
+      if (request.args[0] === 'kanban') {
+        return { stdout: JSON.stringify([]), stderr: '', exitCode: 0 };
+      }
+      if (request.args[0] === 'send') {
+        return { stdout: JSON.stringify({ platforms: {} }), stderr: '', exitCode: 0 };
+      }
+      if (request.args[0] === 'cron') {
+        return { stdout: '', stderr: '', exitCode: 0 };
+      }
+      throw new Error(`unexpected Hermes args: ${request.args.join(' ')}`);
+    });
+
+    const result = await runOpsctl(['doctor'], {
+      config: loadConfig({
+        env: { HERMES_HOME: hermesHome },
+        configPath: null,
+        overrides: { hermesBin: process.execPath, localOnly: true },
+      }),
+      cwd: outsideCwd,
+      env: { HERMES_HOME: hermesHome, PATH: process.env.PATH },
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/^OK\s+dependencies: project dependencies installed/m);
+    expect(result.stdout).not.toContain('run `npm install` from the Keryx project root');
+  });
 });
 
 function writeTempJson(value: unknown, fileName = 'card.json'): string {

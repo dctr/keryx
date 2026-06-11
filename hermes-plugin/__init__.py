@@ -53,6 +53,8 @@ KERYX_ROOT = _resolve_keryx_root()
 
 
 def _setup_argparse(parser: argparse.ArgumentParser) -> None:
+    _pass_help_through_to_opsctl(parser)
+    parser.add_argument("-h", "--help", dest="opsctl_help", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "opsctl_args",
         nargs=argparse.REMAINDER,
@@ -61,10 +63,26 @@ def _setup_argparse(parser: argparse.ArgumentParser) -> None:
     parser.set_defaults(func=_handle_cli)
 
 
+def _pass_help_through_to_opsctl(parser: argparse.ArgumentParser) -> None:
+    """Let `hermes keryx --help` show opsctl help, not wrapper help."""
+
+    for action in list(getattr(parser, "_actions", [])):
+        if getattr(action, "dest", None) != "help":
+            continue
+        parser._remove_action(action)
+        for group in getattr(parser, "_action_groups", []):
+            if action in getattr(group, "_group_actions", []):
+                group._group_actions.remove(action)
+        for option_string in getattr(action, "option_strings", []):
+            parser._option_string_actions.pop(option_string, None)
+
+
 def _handle_cli(args: argparse.Namespace) -> None:
     argv = list(getattr(args, "opsctl_args", []) or [])
     if argv and argv[0] == "--":
         argv = argv[1:]
+    if getattr(args, "opsctl_help", False) and not argv:
+        argv = ["--help"]
 
     env = os.environ.copy()
     env.setdefault("KERYX_CONFIG", str(KERYX_ROOT / "keryx.config.json"))
