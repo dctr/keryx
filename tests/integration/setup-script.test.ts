@@ -1,4 +1,14 @@
-import { chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -9,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve('.');
 const setupScript = resolve('keryx-setup.sh');
+const sourcePluginDir = resolve('hermes-plugin');
 const sourcePluginYaml = resolve('hermes-plugin/plugin.yaml');
 const sourcePluginInit = resolve('hermes-plugin/__init__.py');
 
@@ -81,6 +92,102 @@ describe('keryx setup script', () => {
     expect(config.localOnly).toBe(true);
     expect(readLog(harness)).not.toMatch(/\bcron\s+create\b|\bcronjob\s+create\b|\bcreate\s+cron\b/i);
   });
+
+  it('preserves an existing symlink to the current plugin source', async () => {
+    const harness = createHarness();
+    const pluginDir = installedPluginDir(harness);
+    mkdirSync(join(harness.hermesHome, 'plugins'), { recursive: true });
+    symlinkSync(sourcePluginDir, pluginDir, 'dir');
+
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome, '--local-only'], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('OK plugin symlink already installed');
+    expect(readlinkSync(pluginDir)).toBe(sourcePluginDir);
+    expect(existsSync(join(pluginDir, 'keryx-root.txt'))).toBe(false);
+  });
+
+  it('fails without --force when an existing symlink points elsewhere', async () => {
+    const harness = createHarness();
+    const pluginDir = installedPluginDir(harness);
+    const otherPluginDir = join(harness.hermesHome, 'other-plugin');
+    mkdirSync(join(harness.hermesHome, 'plugins'), { recursive: true });
+    mkdirSync(otherPluginDir, { recursive: true });
+    symlinkSync(otherPluginDir, pluginDir, 'dir');
+
+    const failure = await runSetupFailure(['--hermes-home', harness.hermesHome, '--local-only'], harness);
+
+    expect(failure.code).toBe(1);
+    expect(failure.stderr).toContain('existing Keryx plugin symlink points elsewhere');
+    expect(readlinkSync(pluginDir)).toBe(otherPluginDir);
+    expect(existsSync(harness.configPath)).toBe(false);
+  });
+
+  it('fails without --force when an existing plugin directory exists', async () => {
+    const harness = createHarness();
+    const pluginDir = installedPluginDir(harness);
+    mkdirSync(pluginDir, { recursive: true });
+    writeFileSync(join(pluginDir, 'user-file.txt'), 'preserve me\n', 'utf8');
+
+    const failure = await runSetupFailure(['--hermes-home', harness.hermesHome, '--local-only'], harness);
+
+    expect(failure.code).toBe(1);
+    expect(failure.stderr).toContain('existing Keryx plugin path exists; rerun with --force');
+    expect(readFileSync(join(pluginDir, 'user-file.txt'), 'utf8')).toBe('preserve me\n');
+    expect(existsSync(harness.configPath)).toBe(false);
+  });
+
+  it('replaces a conflicting symlink when --force is supplied', async () => {
+    const harness = createHarness();
+    const pluginDir = installedPluginDir(harness);
+    const otherPluginDir = join(harness.hermesHome, 'other-plugin');
+    mkdirSync(join(harness.hermesHome, 'plugins'), { recursive: true });
+    mkdirSync(otherPluginDir, { recursive: true });
+    symlinkSync(otherPluginDir, pluginDir, 'dir');
+
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome, '--local-only', '--force'], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('OK installed plugin symlink');
+    expect(readlinkSync(pluginDir)).toBe(sourcePluginDir);
+  });
+
+  it('replaces a conflicting directory when --force is supplied', async () => {
+    const harness = createHarness();
+    const pluginDir = installedPluginDir(harness);
+    mkdirSync(pluginDir, { recursive: true });
+    writeFileSync(join(pluginDir, 'user-file.txt'), 'replace me\n', 'utf8');
+
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome, '--local-only', '--force'], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('OK installed plugin symlink');
+    expect(readlinkSync(pluginDir)).toBe(sourcePluginDir);
+    expect(existsSync(join(pluginDir, 'user-file.txt'))).toBe(false);
+  });
+
+  it('copies the adapter with a root locator only when symlink creation is disabled', async () => {
+    const normalHarness = createHarness();
+    await runSetup(['--hermes-home', normalHarness.hermesHome, '--local-only'], normalHarness);
+    const normalPluginDir = installedPluginDir(normalHarness);
+    expect(lstatSync(normalPluginDir).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(normalPluginDir, 'keryx-root.txt'))).toBe(false);
+
+    const fallbackHarness = createHarness();
+    await runSetup(['--hermes-home', fallbackHarness.hermesHome, '--local-only'], {
+      ...fallbackHarness,
+      env: {
+        ...fallbackHarness.env,
+        KERYX_SETUP_DISABLE_SYMLINK: '1',
+      },
+    });
+    const fallbackPluginDir = installedPluginDir(fallbackHarness);
+    expect(lstatSync(fallbackPluginDir).isSymbolicLink()).toBe(false);
+    expect(readFileSync(join(fallbackPluginDir, 'plugin.yaml'), 'utf8')).toBe(readFileSync(sourcePluginYaml, 'utf8'));
+    expect(readFileSync(join(fallbackPluginDir, '__init__.py'), 'utf8')).toBe(readFileSync(sourcePluginInit, 'utf8'));
+    expect(readFileSync(join(fallbackPluginDir, 'keryx-root.txt'), 'utf8')).toBe(`${repoRoot}\n`);
+    expect(existsSync(join(fallbackHarness.hermesHome, 'skills', 'keryx'))).toBe(false);
+  });
 });
 
 async function runSetup(args: string[], harness: Harness): Promise<{ stdout: string; stderr: string }> {
@@ -90,6 +197,30 @@ async function runSetup(args: string[], harness: Harness): Promise<{ stdout: str
     timeout: 20_000,
   });
   return { stdout: result.stdout, stderr: result.stderr };
+}
+
+async function runSetupFailure(
+  args: string[],
+  harness: Harness,
+): Promise<{ stdout: string; stderr: string; code: unknown }> {
+  try {
+    const result = await runSetup(args, harness);
+    throw new Error(`Expected setup to fail but it succeeded with stdout:\n${result.stdout}`);
+  } catch (error) {
+    const failure = error as { stdout?: string; stderr?: string; code?: unknown };
+    if (failure.code === undefined) {
+      throw error;
+    }
+    return {
+      stdout: failure.stdout ?? '',
+      stderr: failure.stderr ?? '',
+      code: failure.code,
+    };
+  }
+}
+
+function installedPluginDir(harness: Harness): string {
+  return join(harness.hermesHome, 'plugins', 'keryx');
 }
 
 function createHarness(): Harness {

@@ -150,6 +150,14 @@ assert_plugin_target_safe() {
   fi
 }
 
+copy_plugin_adapter() {
+  mkdir -p "$PLUGIN_TARGET_DIR"
+  cp "$PLUGIN_SOURCE_DIR/plugin.yaml" "$PLUGIN_TARGET_DIR/plugin.yaml"
+  cp "$PLUGIN_SOURCE_DIR/__init__.py" "$PLUGIN_TARGET_DIR/__init__.py"
+  printf '%s\n' "$ROOT_DIR" > "$PLUGIN_TARGET_DIR/keryx-root.txt"
+  say "OK copied plugin adapter: $PLUGIN_TARGET_DIR"
+}
+
 install_plugin() {
   if [ ! -f "$PLUGIN_SOURCE_DIR/plugin.yaml" ] || [ ! -f "$PLUGIN_SOURCE_DIR/__init__.py" ]; then
     echo "FAIL Hermes plugin adapter missing under $PLUGIN_SOURCE_DIR" >&2
@@ -184,16 +192,12 @@ install_plugin() {
     rm -rf "$PLUGIN_TARGET_DIR"
   fi
 
-  if ln -s "$PLUGIN_SOURCE_DIR" "$PLUGIN_TARGET_DIR" 2>/dev/null; then
+  if [ "${KERYX_SETUP_DISABLE_SYMLINK:-0}" != "1" ] && ln -s "$PLUGIN_SOURCE_DIR" "$PLUGIN_TARGET_DIR" 2>/dev/null; then
     say "OK installed plugin symlink: $PLUGIN_TARGET_DIR -> $PLUGIN_SOURCE_DIR"
     return 0
   fi
 
-  mkdir -p "$PLUGIN_TARGET_DIR"
-  cp "$PLUGIN_SOURCE_DIR/plugin.yaml" "$PLUGIN_TARGET_DIR/plugin.yaml"
-  cp "$PLUGIN_SOURCE_DIR/__init__.py" "$PLUGIN_TARGET_DIR/__init__.py"
-  printf '%s\n' "$ROOT_DIR" > "$PLUGIN_TARGET_DIR/keryx-root.txt"
-  say "OK copied plugin adapter: $PLUGIN_TARGET_DIR"
+  copy_plugin_adapter
 }
 
 enable_plugin() {
