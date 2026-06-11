@@ -182,7 +182,13 @@ hermes keryx list --status blocked
 hermes keryx show <task_id>
 hermes keryx cron-status
 hermes keryx delivery-targets
+hermes keryx schema action-item
+hermes keryx schema execution-decision
+hermes keryx schema collector-state
+hermes keryx template-card [--source <source>] [--collector <collector>]
 hermes keryx validate-card <card.json>
+hermes keryx validate-state <collector-state.json>
+hermes keryx create-card <card.json>
 hermes keryx execute <task_id> --option <option_id> [--feedback <text>] [--dispatch]
 hermes keryx dismiss <task_id> [--reason <text>]
 ```
@@ -268,7 +274,7 @@ Source-specific collector examples should use:
 
 If a source-specific skill is not shipped by the core Keryx repository, its packaging must define whether it is a Keryx plugin skill, a normal Hermes user skill, or part of another plugin. The docs must avoid ambiguous unqualified skill names where a plugin-qualified name is required.
 
-### 4.7 Schemas as plugin/repository data
+### 4.7 Schemas and templates as plugin/repository data
 
 The canonical schemas remain:
 
@@ -280,24 +286,40 @@ schemas/collector-state.v1.schema.json
 
 Requirements:
 
-- `opsctl validate-card` continues to validate against `schemas/action-item.v1.schema.json`.
-- A collector-state validation command should be added or planned if collectors are expected to validate state files through Keryx rather than duplicating schema fragments.
-- Any future collector helper that creates cards should call Keryx validation through `opsctl` or import/use the repository schemas directly. It must not embed a divergent hand-copied schema.
+- `hermes keryx schema action-item` prints the canonical `schemas/action-item.v1.schema.json` content.
+- `hermes keryx schema execution-decision` prints the canonical `schemas/execution-decision.v1.schema.json` content.
+- `hermes keryx schema collector-state` prints the canonical `schemas/collector-state.v1.schema.json` content.
+- `hermes keryx template-card` prints a valid minimal `keryx.action_item.v1` JSON template derived from the current action-item schema and Keryx defaults.
+- `hermes keryx validate-card` validates against `schemas/action-item.v1.schema.json`.
+- `hermes keryx validate-state` validates against `schemas/collector-state.v1.schema.json`.
+- Any future collector helper that creates cards should call Keryx validation through `opsctl`/`hermes keryx` or import/use the repository schemas directly. It must not embed a divergent hand-copied schema.
 - Plugin data access should be relative to the plugin/repository path, not to the caller's cwd.
 
-### 4.8 Optional collector helper surface
+### 4.8 Required collector card-creation surface
 
-The plugin migration does not require adding concrete collectors, but it should leave a clear path for collector authors.
+The plugin migration does not require adding concrete collectors, but it must provide a clear and deterministic card-creation path for collector authors and collector agents.
 
-Recommended future `opsctl` additions:
+Required `hermes keryx`/`opsctl` commands:
 
 ```sh
+hermes keryx schema action-item
+hermes keryx template-card [--source <source>] [--collector <collector>]
 hermes keryx validate-card <card.json>
 hermes keryx validate-state <collector-state.json>
 hermes keryx create-card <card.json>
 ```
 
-`create-card` should be considered if collector templates or agents currently need to hand-construct `hermes kanban create` invocations. It would centralise:
+Collector skills should describe the process for creating cards, not duplicate the schema or embed a card template. When a collector agent needs to create a card, it should:
+
+1. Run `hermes keryx template-card --source <source> --collector <collector>` to obtain the current canonical template.
+2. Fill source-specific values from compact candidate facts.
+3. If unsure about fields, enum values, or optional structures, run `hermes keryx schema action-item`.
+4. Write the proposed card body to a temporary JSON file.
+5. Run `hermes keryx validate-card <card.json>`.
+6. Fix validation errors, if any, and revalidate.
+7. Run `hermes keryx create-card <card.json>`.
+
+`create-card` centralises:
 
 - schema validation;
 - board selection;
@@ -308,7 +330,7 @@ hermes keryx create-card <card.json>
 - assignee from Keryx config;
 - idempotency key from card `idempotency_key`.
 
-This command is not strictly required for the plugin MVP, but the PRD expects the migration to avoid new ad hoc schema duplication and ad hoc unqualified skill attachment.
+Collectors and collector agents should not call raw `hermes kanban create` directly unless `create-card` is unavailable and an operator explicitly approves the fallback. This keeps card creation policy in Keryx rather than in each collector prompt or helper.
 
 ## 5. Required repository changes
 
@@ -403,6 +425,7 @@ Update `README.md`:
   - run health check.
 - Remove the claim that setup installs bundled skills into `$HERMES_HOME/skills/keryx/`.
 - Document plugin-qualified skill names.
+- Document that collector agents retrieve the current card template and schema through `hermes keryx template-card` and `hermes keryx schema action-item`, not by relying on duplicated schema text in skills.
 - Update daily commands to include `hermes keryx ...` as the preferred path, while optionally noting `./bin/opsctl ...` as the direct repo command.
 - Update troubleshooting from `FAIL skills: rerun setup; it should install skills under $HERMES_HOME/skills/keryx/` to plugin registration/enablement checks.
 - Keep warnings that setup does not create real collector cron jobs.
@@ -420,7 +443,8 @@ Update `docs/collector-authoring.md`:
 - Replace unqualified skill names with plugin-qualified skill names.
 - Fix any schema-invalid examples. Current examples must use `autonomy` values allowed by `schemas/action-item.v1.schema.json`: `auto`, `minimal`, `research`, or `complex`.
 - Clarify that plugin-registered skills are explicit qualified loads.
-- Clarify that repository schemas are canonical and should not be copied into collector helpers.
+- Clarify that repository schemas and CLI-emitted templates are canonical and should not be copied into collector helpers or skills.
+- Clarify the collector card-creation loop: `template-card`, fill values, `schema action-item` if uncertain, `validate-card`, then `create-card`.
 
 Update `docs/architecture.md`, `docs/operations.md`, and `docs/security.md` if they mention copied skills, direct `opsctl` only, or unqualified skills.
 
@@ -442,6 +466,7 @@ Expected changes:
 - `keryx-collector-creator` should instruct cron jobs to attach `keryx:keryx-collector-<source>` and `keryx:keryx-collector` when source-specific skills are plugin-registered, and to attach `keryx:keryx-worker` to cards.
 - `keryx-worker` should not assume it was loaded from `$HERMES_HOME/skills`; it should work as a plugin skill.
 - Any examples that call `opsctl` should prefer `hermes keryx ...` or explicitly say `./bin/opsctl ...` is the repository-direct fallback.
+- Collector skills must not embed full JSON schemas or hand-maintained action-card templates. They should instruct agents to call `hermes keryx template-card` and `hermes keryx schema action-item` instead.
 
 ### 5.6 Update tests
 
@@ -477,6 +502,9 @@ Add tests that show:
 - explicit `KERYX_CONFIG` still wins;
 - `hermes keryx ...` plugin command passes through args and exit status to `bin/opsctl`;
 - `hermes keryx doctor` sets or preserves the expected environment.
+- `hermes keryx schema action-item`, `schema execution-decision`, and `schema collector-state` return the canonical repository schema files.
+- `hermes keryx template-card` returns JSON that validates against `schemas/action-item.v1.schema.json`.
+- `hermes keryx create-card <card.json>` validates before creating and uses the central Keryx creation policy.
 
 The plugin CLI tests can use a fake/substituted `opsctl` or test the Python handler directly with monkeypatched subprocess calls.
 
@@ -487,6 +515,7 @@ Add lightweight checks where appropriate:
 - README no longer says setup copies skills into `$HERMES_HOME/skills/keryx/`.
 - README/AGENTS/collector docs mention `keryx:keryx-worker` where card skill attachment is documented.
 - `docs/collector-authoring.md` examples validate against `schemas/action-item.v1.schema.json`.
+- Collector skills/docs do not embed full schema or static card templates; they point to `hermes keryx template-card` and `hermes keryx schema action-item`.
 
 ### 5.7 Update package/build behaviour if needed
 
@@ -531,11 +560,15 @@ The migration is complete when all of the following are true:
 11. `hermes keryx doctor` works after plugin enablement.
 12. README, AGENTS, collector docs, operations docs, and bundled skills no longer instruct users/agents to attach unqualified Keryx skills after plugin migration.
 13. JSON schema files in `schemas/` remain the canonical contracts for card, execution decision, and collector state validation.
-14. Existing `opsctl` read/mutate commands continue to pass their current tests.
-15. New plugin/setup tests pass without touching a real Hermes installation.
-16. `npm run lint` and `npm test` pass.
-17. `npm run typecheck` passes if any Svelte/shared types are touched.
-18. `npm run build` passes if server/build/plugin packaging behaviour changes.
+14. `hermes keryx schema action-item`, `schema execution-decision`, and `schema collector-state` expose those canonical schema files.
+15. `hermes keryx template-card` emits a card template generated from or validated against the current action-item schema.
+16. `hermes keryx validate-card`, `validate-state`, and `create-card` enforce schema validation before accepting collector-created data.
+17. Collector docs and skills instruct agents to retrieve the current template/schema through Keryx CLI commands rather than embedding full schemas or static templates.
+18. Existing `opsctl` read/mutate commands continue to pass their current tests.
+19. New plugin/setup tests pass without touching a real Hermes installation.
+20. `npm run lint` and `npm test` pass.
+21. `npm run typecheck` passes if any Svelte/shared types are touched.
+22. `npm run build` passes if server/build/plugin packaging behaviour changes.
 
 ## 8. Suggested implementation phases
 
@@ -553,7 +586,15 @@ The migration is complete when all of the following are true:
 - Add tests for cwd-independent invocation and explicit config override.
 - Keep `./bin/opsctl ...` as the direct repo command.
 
-### Phase 3 — Setup migration
+### Phase 3 — Schema/template and card-creation commands
+
+- Add `schema <action-item|execution-decision|collector-state>` commands.
+- Add `template-card` command that emits a schema-valid minimal action-card template.
+- Add `validate-state` command for collector state files.
+- Add `create-card` command that validates, applies central Keryx card-creation policy, and creates a blocked Kanban card.
+- Add tests proving schema/template outputs come from repository contracts and remain valid.
+
+### Phase 4 — Setup migration
 
 - Replace copied-skill installation with plugin symlink/copy installation.
 - Enable the plugin for the selected Hermes home.
@@ -562,15 +603,16 @@ The migration is complete when all of the following are true:
 - Keep board ensure, delivery target discovery, repo-local config writing, and doctor checks.
 - Update setup integration tests with fake Hermes.
 
-### Phase 4 — Documentation and skill migration
+### Phase 5 — Documentation and skill migration
 
 - Update README.
 - Update AGENTS.
 - Update docs under `docs/` that reference setup, skills, collector authoring, operations, or direct commands.
 - Update `skills/keryx/*/SKILL.md` to use qualified plugin skill names.
+- Update collector skills to reference `hermes keryx template-card` and `hermes keryx schema action-item` instead of embedding schema/template text.
 - Fix schema-invalid examples in collector docs.
 
-### Phase 5 — Validation and polish
+### Phase 6 — Validation and polish
 
 - Run targeted plugin/setup/opsctl tests.
 - Run `npm run lint` and `npm test`.
@@ -588,6 +630,7 @@ The migration is complete when all of the following are true:
 | `hermes keryx` is unavailable until plugin discovery after enablement/restart | Setup final doctor may fail immediately after enablement | Prefer a setup flow that invokes a fresh Hermes process after enablement; fall back to `bin/opsctl doctor` only if needed and document behaviour. |
 | Python plugin wrapper accidentally reimplements TypeScript logic | Divergent behaviours | Keep wrapper thin; delegate to `bin/opsctl`; keep Keryx logic in TypeScript. |
 | Config resolution changes break existing `KERYX_CONFIG` users | Existing overrides stop working | Explicit `KERYX_CONFIG` must remain highest precedence. Add tests. |
+| Skills duplicate schema/template details | Skill instructions drift when schemas change | Skills must describe process only and point agents to `hermes keryx schema ...` and `hermes keryx template-card`. Add documentation/contract tests. |
 | Docs retain unqualified skill names | New cards/cron jobs may fail to load plugin skills | Add documentation/contract tests for qualified names. |
 | Plugin registration imports heavy dependencies | Hermes startup/plugin discovery slows down or fails without npm install | Plugin discovery should only register paths and CLI wrapper; `opsctl` execution may require npm/build as before. |
 | Tests mutate a real Hermes home | Developer state damage | Use temp `HERMES_HOME`, fake Hermes binaries, and no real cron creation in tests. |
@@ -595,10 +638,9 @@ The migration is complete when all of the following are true:
 ## 10. Open questions
 
 1. Should setup always symlink the plugin, or should it support `--copy-plugin` for environments where symlinks are undesirable?
-2. Should `hermes keryx` be a pure pass-through to `opsctl`, or should it expose curated subcommands with richer argparse help?
-3. Should `opsctl create-card` and `opsctl validate-state` be included in the plugin migration MVP or deferred to a collector-authoring improvement?
-4. Should setup remove legacy copied Keryx skills from `$HERMES_HOME/skills/keryx/` after successful plugin migration, or only warn about stale copies? This PRD does not require removal because deleting user-modified skill files is risky.
-5. What minimum Hermes Agent version should README require after plugin migration? It must be a version that supports general plugins, `ctx.register_cli_command`, and `ctx.register_skill`.
+2. Should `hermes keryx` be a pure pass-through to `opsctl`, or should it expose curated subcommands with richer argparse help while still delegating implementation to `opsctl`?
+3. Should setup remove legacy copied Keryx skills from `$HERMES_HOME/skills/keryx/` after successful plugin migration, or only warn about stale copies? This PRD does not require removal because deleting user-modified skill files is risky.
+4. What minimum Hermes Agent version should README require after plugin migration? It must be a version that supports general plugins, `ctx.register_cli_command`, and `ctx.register_skill`.
 
 ## 11. Handoff notes for future implementation conversations
 
