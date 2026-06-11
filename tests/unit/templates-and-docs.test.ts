@@ -215,6 +215,10 @@ describe('collector templates and support docs', () => {
       expect(operations).toContain(phrase);
     }
 
+    for (const phrase of ['$HERMES_HOME/plugins/keryx', 'hermes plugins enable keryx', './keryx-setup.sh']) {
+      expect(operations, `operations guide should document ${phrase}`).toContain(phrase);
+    }
+
     expect(systemd).toContain('npm start');
     expect(systemd).toContain('127.0.0.1');
     expect(systemd).toContain('/opt/keryx');

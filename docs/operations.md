@@ -14,7 +14,7 @@ A source status should tell the operator whether a collector is healthy enough t
 
 ## Troubleshooting plugin setup
 
-Run `hermes keryx doctor` after setup and after changing Hermes configuration. If the plugin command is unavailable, check `$HERMES_HOME/plugins/keryx`, run `hermes plugins list`, then enable it with `hermes plugins enable keryx`. Use `./bin/opsctl doctor` only as the direct repository fallback.
+Run `hermes keryx doctor` after setup and after changing Hermes configuration. If the plugin command is unavailable or doctor reports `FAIL plugin`, check `$HERMES_HOME/plugins/keryx` and run `hermes plugins list`; rerun `./keryx-setup.sh` if the plugin files are missing, otherwise enable it with `hermes plugins enable keryx`. Use `./bin/opsctl doctor` only as the direct repository fallback.
 
 Stale copied skill files from an older installation may exist, but they are no longer the source of truth. Do not delete user-modified skill files automatically; the plugin-registered repository skills should be loaded with names such as `keryx:keryx-worker` and `keryx:keryx-collector`.
 
