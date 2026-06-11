@@ -3,7 +3,6 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT_DIR=$SCRIPT_DIR
-SOURCE_SKILLS_DIR="$ROOT_DIR/skills/keryx"
 CONFIG_PATH=${KERYX_CONFIG:-"$ROOT_DIR/keryx.config.json"}
 HERMES_BIN=${HERMES_BIN:-hermes}
 DRY_RUN=0
@@ -18,8 +17,8 @@ Usage: ./keryx-setup.sh [options]
 
 Options:
   --dry-run                    Print intended actions without writing files or running Hermes commands
-  --hermes-home <path>         Install bundled Keryx skills into this Hermes home
-  --force                      Overwrite existing installed Keryx skill files
+  --hermes-home <path>         Install/enable the Keryx plugin in this Hermes home
+  --force                      Replace an existing conflicting Keryx plugin path
   --delivery-target <target>   Configure the default Keryx delivery target
   --local-only                 Configure Keryx without a default delivery target
   --help                       Show this help
@@ -85,6 +84,8 @@ expand_tilde() {
 }
 
 HERMES_HOME_PATH=$(expand_tilde "$(resolve_home)")
+PLUGIN_SOURCE_DIR="$ROOT_DIR/hermes-plugin"
+PLUGIN_TARGET_DIR="$HERMES_HOME_PATH/plugins/keryx"
 case "$CONFIG_PATH" in
   /*) ;;
   *) CONFIG_PATH="$ROOT_DIR/$CONFIG_PATH" ;;
@@ -142,34 +143,66 @@ create_board() {
   exit 1
 }
 
-install_skills() {
-  if [ ! -d "$SOURCE_SKILLS_DIR" ]; then
-    echo "FAIL bundled skills directory missing: $SOURCE_SKILLS_DIR" >&2
+assert_plugin_target_safe() {
+  if [ -z "$PLUGIN_TARGET_DIR" ] || [ "$PLUGIN_TARGET_DIR" != "$HERMES_HOME_PATH/plugins/keryx" ]; then
+    echo "FAIL unsafe Keryx plugin target path: $PLUGIN_TARGET_DIR" >&2
+    exit 1
+  fi
+}
+
+install_plugin() {
+  if [ ! -f "$PLUGIN_SOURCE_DIR/plugin.yaml" ] || [ ! -f "$PLUGIN_SOURCE_DIR/__init__.py" ]; then
+    echo "FAIL Hermes plugin adapter missing under $PLUGIN_SOURCE_DIR" >&2
     exit 1
   fi
 
-  target_dir="$HERMES_HOME_PATH/skills/keryx"
   if [ "$DRY_RUN" -eq 1 ]; then
-    say "DRY-RUN would install bundled Keryx skills into $target_dir"
+    say "DRY-RUN would install Keryx Hermes plugin at $PLUGIN_TARGET_DIR from $PLUGIN_SOURCE_DIR"
     return 0
   fi
 
-  find "$SOURCE_SKILLS_DIR" -type d | while IFS= read -r source_dir; do
-    relative=${source_dir#"$SOURCE_SKILLS_DIR"}
-    mkdir -p "$target_dir$relative"
-  done
+  mkdir -p "$(dirname -- "$PLUGIN_TARGET_DIR")"
 
-  find "$SOURCE_SKILLS_DIR" -type f | while IFS= read -r source_file; do
-    relative=${source_file#"$SOURCE_SKILLS_DIR"/}
-    target_file="$target_dir/$relative"
-    if [ -e "$target_file" ] && [ "$FORCE" -ne 1 ]; then
-      say "SKIP preserved existing skill file: $target_file"
-      continue
+  if [ -L "$PLUGIN_TARGET_DIR" ]; then
+    current=$(readlink "$PLUGIN_TARGET_DIR" || true)
+    if [ "$current" = "$PLUGIN_SOURCE_DIR" ]; then
+      say "OK plugin symlink already installed: $PLUGIN_TARGET_DIR -> $PLUGIN_SOURCE_DIR"
+      return 0
     fi
-    mkdir -p "$(dirname -- "$target_file")"
-    cp "$source_file" "$target_file"
-    say "OK installed skill file: $target_file"
-  done
+    if [ "$FORCE" -ne 1 ]; then
+      echo "FAIL existing Keryx plugin symlink points elsewhere: $PLUGIN_TARGET_DIR -> $current" >&2
+      exit 1
+    fi
+    assert_plugin_target_safe
+    rm -f "$PLUGIN_TARGET_DIR"
+  elif [ -e "$PLUGIN_TARGET_DIR" ]; then
+    if [ "$FORCE" -ne 1 ]; then
+      echo "FAIL existing Keryx plugin path exists; rerun with --force to replace: $PLUGIN_TARGET_DIR" >&2
+      exit 1
+    fi
+    assert_plugin_target_safe
+    rm -rf "$PLUGIN_TARGET_DIR"
+  fi
+
+  if ln -s "$PLUGIN_SOURCE_DIR" "$PLUGIN_TARGET_DIR" 2>/dev/null; then
+    say "OK installed plugin symlink: $PLUGIN_TARGET_DIR -> $PLUGIN_SOURCE_DIR"
+    return 0
+  fi
+
+  mkdir -p "$PLUGIN_TARGET_DIR"
+  cp "$PLUGIN_SOURCE_DIR/plugin.yaml" "$PLUGIN_TARGET_DIR/plugin.yaml"
+  cp "$PLUGIN_SOURCE_DIR/__init__.py" "$PLUGIN_TARGET_DIR/__init__.py"
+  printf '%s\n' "$ROOT_DIR" > "$PLUGIN_TARGET_DIR/keryx-root.txt"
+  say "OK copied plugin adapter: $PLUGIN_TARGET_DIR"
+}
+
+enable_plugin() {
+  if [ "$DRY_RUN" -eq 1 ]; then
+    say "DRY-RUN would enable Hermes plugin keryx with: $HERMES_BIN plugins enable keryx"
+    return 0
+  fi
+  run_hermes plugins enable keryx
+  say "OK plugin keryx enabled"
 }
 
 discover_delivery_targets() {
@@ -238,16 +271,17 @@ NODE
 
 run_doctor() {
   if [ "$DRY_RUN" -eq 1 ]; then
-    say "DRY-RUN would run ./bin/opsctl doctor"
+    say "DRY-RUN would run hermes keryx doctor"
     return 0
   fi
 
-  HERMES_HOME="$HERMES_HOME_PATH" KERYX_CONFIG="$CONFIG_PATH" "$ROOT_DIR/bin/opsctl" doctor
+  HERMES_HOME="$HERMES_HOME_PATH" KERYX_CONFIG="$CONFIG_PATH" "$HERMES_BIN" keryx doctor
 }
 
 require_hermes_cli
 create_board
-install_skills
+install_plugin
+enable_plugin
 discover_delivery_targets
 write_config
 run_doctor
