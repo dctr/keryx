@@ -64,6 +64,44 @@ describe('bundled Keryx skills', () => {
     expect(workerSkillText).toContain('keryx-collector-$SOURCE');
     expect(workerSkillText).toContain('keryx:automation-suggestion:<source>:<stable-slug>');
   });
+
+  it('uses plugin-qualified Keryx skill names for card and cron attachments', () => {
+    const descriptionText = readFileSync(join(categoryRoot, 'DESCRIPTION.md'), 'utf8');
+    const collectorText = readFileSync(join(categoryRoot, 'keryx-collector', 'SKILL.md'), 'utf8');
+    const collectorCreatorText = readFileSync(join(categoryRoot, 'keryx-collector-creator', 'SKILL.md'), 'utf8');
+    const workerText = readFileSync(join(categoryRoot, 'keryx-worker', 'SKILL.md'), 'utf8');
+
+    expect(descriptionText).toContain('`keryx:keryx-worker`');
+    expect(descriptionText).toContain('`keryx:keryx-collector`');
+    expect(descriptionText).toContain('`keryx:keryx-collector-creator`');
+
+    for (const skillText of [collectorText, collectorCreatorText, workerText]) {
+      expect(skillText).not.toContain('skill: keryx-worker');
+      expect(skillText).not.toContain('attach `keryx-worker`');
+      expect(skillText).not.toContain('Attach `keryx-worker`');
+    }
+
+    expect(collectorCreatorText).not.toContain('then `keryx-collector`');
+    expect(collectorCreatorText).not.toContain('Attach skills in this order: `keryx-collector-$NAME`, then `keryx-collector`');
+    expect(collectorCreatorText).toContain('`keryx:keryx-collector-$NAME`');
+    expect(collectorCreatorText).toContain('`keryx:keryx-collector`');
+  });
+
+  it('points collectors to canonical hermes keryx card commands instead of embedded templates', () => {
+    const collectorText = readFileSync(join(categoryRoot, 'keryx-collector', 'SKILL.md'), 'utf8');
+    const bundledSkillText = skillNames.map((skillName) => readFileSync(join(categoryRoot, skillName, 'SKILL.md'), 'utf8')).join('\n');
+
+    expect(collectorText).toContain('hermes keryx template-card');
+    expect(collectorText).toContain('hermes keryx validate-card');
+    expect(collectorText).toContain('hermes keryx create-card');
+    expect(collectorText).toContain('raw `hermes kanban create`');
+    expect(collectorText).toContain('operator');
+
+    expect(bundledSkillText).not.toContain('"schema": "keryx.action_item.v1"');
+    expect(bundledSkillText).not.toContain('"schema": "keryx.execution_decision.v1"');
+    expect(bundledSkillText).not.toContain('"properties"');
+    expect(bundledSkillText).not.toContain('"required"');
+  });
 });
 
 function parseSkill(path: string): { frontmatter: Record<string, string>; body: string } {

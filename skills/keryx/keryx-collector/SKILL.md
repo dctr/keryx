@@ -1,6 +1,6 @@
 ---
 name: keryx-collector
-description: Govern Keryx source collector cron jobs. Use when an agent is scanning email, calendar, Notion, Facebook, files, or another source for actionable items to turn into blocked keryx.action_item.v1 Kanban cards without persisting untrusted source content.
+description: Govern Keryx source collector cron jobs. Use when an agent is scanning email, calendar, Notion, Facebook, files, or another source for actionable items to turn into blocked keryx.action_item.v1 Kanban cards through hermes keryx without persisting untrusted source content.
 ---
 
 # Keryx collector
@@ -19,19 +19,20 @@ Create Keryx action cards only for concrete actions. Silence should mean nothing
 
 ## Card creation
 
-For each actionable item, create a Kanban card on board `keryx` using blocked card creation:
+For each actionable item, use the canonical Keryx card path:
 
-```text
-assignee: default
-tenant: <source>
-created_by: keryx-collector-<source>
-initial_status: blocked
-skill: keryx-worker
-idempotency_key: keryx:<source>:<stable-id>
-body: JSON-only keryx.action_item.v1
+```sh
+hermes keryx template-card --source <source> --collector <collector> > /tmp/keryx-card.json
+# fill /tmp/keryx-card.json with compact source_refs, options, summary, risk, and idempotency_key
+hermes keryx validate-card /tmp/keryx-card.json
+hermes keryx create-card /tmp/keryx-card.json
 ```
 
-The body must include stable `source_refs`, one or more executable `options`, compact risk/summary text, and no Markdown wrapper.
+If running directly from a checkout before the plugin command is available, use the equivalent `./bin/opsctl template-card`, `./bin/opsctl validate-card`, and `./bin/opsctl create-card` fallback from the repository root.
+
+`create-card` owns blocked card creation policy: board `keryx`, initial status `blocked`, configured assignee, source tenant, `created_by` from the collector, stable idempotency, and worker skill `keryx:keryx-worker`. The card body must validate as `keryx.action_item.v1`, include stable `source_refs`, one or more executable `options`, compact risk/summary text, and no Markdown wrapper.
+
+Use raw `hermes kanban create` only when `hermes keryx create-card` and `./bin/opsctl create-card` are unavailable and an operator explicitly approves the fallback.
 
 ## Idempotency and cursor safety
 
