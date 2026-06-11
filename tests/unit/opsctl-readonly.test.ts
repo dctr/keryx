@@ -1,12 +1,12 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
 import { loadConfig } from '../../src/config';
 import { runOpsctl } from '../../src/opsctl/commands';
-import type { ActionItem } from '../../src/schemas/actionItem';
+import { type ActionItem, validateActionItem } from '../../src/schemas/actionItem';
 import type { HermesRunner } from '../../src/hermes/types';
 
 const validActionItem: ActionItem = {
@@ -39,6 +39,15 @@ const validActionItem: ActionItem = {
 };
 
 describe('read-only opsctl commands', () => {
+  it('lists schema, template, and collector-state validation commands in help', async () => {
+    const result = await runOpsctl(['--help'], { env: {}, configPath: null });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('schema <action-item|execution-decision|collector-state>');
+    expect(result.stdout).toContain('template-card [--source <source>] [--collector <collector>]');
+    expect(result.stdout).toContain('validate-state <file>');
+  });
+
   it('validates a valid action-item JSON file', async () => {
     const filePath = writeTempJson(validActionItem);
 
@@ -61,6 +70,84 @@ describe('read-only opsctl commands', () => {
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('FAIL');
     expect(result.stderr).toContain("must have required property 'title'");
+  });
+
+  it('prints canonical repository schemas exactly', async () => {
+    for (const [name, schemaPath] of [
+      ['action-item', 'schemas/action-item.v1.schema.json'],
+      ['execution-decision', 'schemas/execution-decision.v1.schema.json'],
+      ['collector-state', 'schemas/collector-state.v1.schema.json'],
+    ] as const) {
+      const result = await runOpsctl(['schema', name], { env: {}, configPath: null });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(result.stdout).toBe(readFileSync(resolve(schemaPath), 'utf8'));
+    }
+  });
+
+  it('rejects unknown schema names with a concise usage error', async () => {
+    const result = await runOpsctl(['schema', 'unknown'], { env: {}, configPath: null });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('FAIL schema requires one of: action-item, execution-decision, collector-state');
+  });
+
+  it('validates collector-state JSON files', async () => {
+    const filePath = writeTempJson(
+      {
+        schema: 'keryx.collector_state.v1',
+        source: 'email',
+        committed_cursor: null,
+        last_success_at: null,
+        exact_dismissed_external_ids: [],
+      },
+      'collector-state.json',
+    );
+
+    const result = await runOpsctl(['validate-state', filePath], { env: {}, configPath: null });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe('OK valid collector state: email\n');
+  });
+
+  it('returns non-zero with validation messages for invalid collector state', async () => {
+    const filePath = writeTempJson(
+      {
+        schema: 'keryx.collector_state.v1',
+        committed_cursor: null,
+        last_success_at: null,
+        exact_dismissed_external_ids: [],
+      },
+      'collector-state.json',
+    );
+
+    const result = await runOpsctl(['validate-state', filePath], { env: {}, configPath: null });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('FAIL invalid collector state');
+    expect(result.stderr).toContain("must have required property 'source'");
+  });
+
+  it('prints a schema-valid action-item template card', async () => {
+    const result = await runOpsctl(['template-card', '--source', 'email', '--collector', 'keryx-email'], {
+      env: {},
+      configPath: null,
+      now: () => new Date('2026-06-11T00:00:00.000Z'),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe('');
+
+    const parsed = JSON.parse(result.stdout) as ActionItem;
+    expect(parsed.source).toBe('email');
+    expect(parsed.collector).toBe('keryx-email');
+    expect(parsed.idempotency_key).toMatch(/^keryx:email:/);
+    expect(parsed.created_at).toBe('2026-06-11T00:00:00.000Z');
+    expect(validateActionItem(parsed).ok).toBe(true);
   });
 
   it('wraps Hermes Kanban list with board, status, and JSON flags', async () => {
@@ -265,9 +352,9 @@ describe('read-only opsctl commands', () => {
   });
 });
 
-function writeTempJson(value: unknown): string {
+function writeTempJson(value: unknown, fileName = 'card.json'): string {
   const directory = mkdtempSync(join(tmpdir(), 'keryx-opsctl-'));
-  const filePath = join(directory, 'card.json');
+  const filePath = join(directory, fileName);
   writeFileSync(filePath, JSON.stringify(value), 'utf8');
   return filePath;
 }

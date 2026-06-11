@@ -5,7 +5,9 @@ import { delimiter, join } from 'node:path';
 import { type KeryxConfig, loadConfig } from '../config';
 import { HermesCliAdapter } from '../hermes/adapter';
 import type { HermesRunner, KanbanTask } from '../hermes/types';
-import { type ActionItem, validateActionItem } from '../schemas/actionItem';
+import { actionItemSchema, type ActionItem, validateActionItem } from '../schemas/actionItem';
+import { collectorStateSchema, validateCollectorState } from '../schemas/collectorState';
+import { executionDecisionSchema } from '../schemas/executionDecision';
 import {
   type CommandResult,
   type CronJobSummary,
@@ -44,7 +46,12 @@ Read-only commands:
   show <task_id>                 Show a Keryx Kanban card and validate its JSON body
   cron-status                    Summarise keryx-* collector cron jobs
   delivery-targets [--json]      List Hermes delivery targets
+  schema <action-item|execution-decision|collector-state>
+                                  Print a canonical Keryx JSON schema
+  template-card [--source <source>] [--collector <collector>]
+                                  Print a schema-valid action-item template
   validate-card <file>           Validate an action-item JSON card body
+  validate-state <file>          Validate a collector-state JSON file
 
 Mutating commands:
   execute <task_id> --option <id> [--feedback <text>] [--dispatch]
@@ -55,6 +62,21 @@ Mutating commands:
 Global options:
   --help, -h                     Show this help
 `;
+
+const SCHEMA_COMMANDS = {
+  'action-item': {
+    schema: actionItemSchema,
+    fileUrl: new URL('../../schemas/action-item.v1.schema.json', import.meta.url),
+  },
+  'execution-decision': {
+    schema: executionDecisionSchema,
+    fileUrl: new URL('../../schemas/execution-decision.v1.schema.json', import.meta.url),
+  },
+  'collector-state': {
+    schema: collectorStateSchema,
+    fileUrl: new URL('../../schemas/collector-state.v1.schema.json', import.meta.url),
+  },
+} as const;
 
 export function getHelpText(): string {
   return HELP_TEXT;
@@ -71,8 +93,14 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
     const adapter = new HermesCliAdapter(config, options.hermesRunner);
 
     switch (parsed.command) {
+      case 'schema':
+        return schemaCommand(parsed.positionals[0]);
+      case 'template-card':
+        return templateCard(parsed, options.now ?? (() => new Date()));
       case 'validate-card':
         return validateCard(parsed.positionals[0]);
+      case 'validate-state':
+        return validateState(parsed.positionals[0]);
       case 'list':
         return listCards(parsed, adapter);
       case 'show':
@@ -124,6 +152,55 @@ function parseArgs(argv: string[]): ParsedArgs {
   return { command, positionals, flags };
 }
 
+function schemaCommand(name: string | undefined): CommandResult {
+  if (!name || !(name in SCHEMA_COMMANDS)) {
+    return fail('FAIL schema requires one of: action-item, execution-decision, collector-state', 2);
+  }
+
+  const schema = SCHEMA_COMMANDS[name as keyof typeof SCHEMA_COMMANDS];
+  const schemaText = readFileSync(schema.fileUrl, 'utf8');
+  if (JSON.stringify(JSON.parse(schemaText)) !== JSON.stringify(schema.schema)) {
+    return fail(`FAIL schema import does not match repository file: ${name}`);
+  }
+  return ok(schemaText);
+}
+
+function templateCard(parsed: ParsedArgs, now: () => Date): CommandResult {
+  const source = stringFlag(parsed, 'source') ?? 'example';
+  const collector = stringFlag(parsed, 'collector') ?? `keryx-${source}`;
+  const externalId = `${source}:replace-me`;
+  const card: ActionItem = {
+    schema: 'keryx.action_item.v1',
+    source,
+    collector,
+    external_id: externalId,
+    idempotency_key: `keryx:${source}:replace-me`,
+    origin_descriptor: `${source} item replace-me`,
+    title: `Review ${source} item`,
+    summary: 'Replace this summary with compact candidate facts. Do not paste raw private source content.',
+    autonomy: 'minimal',
+    urgency: 'normal',
+    deadline: null,
+    risk: null,
+    source_refs: [{ type: source, id: 'replace-me' }],
+    options: [
+      {
+        id: 'approve',
+        label: 'Approve requested action',
+        requires_input: false,
+        input_hint: null,
+        delivery: null,
+        execution_prompt: 'Re-query the source system, verify the item still needs action, then perform the approved action safely.',
+      },
+    ],
+    ui: { primary_option_id: 'approve', display_group: 'Needs approval' },
+    created_at: now().toISOString(),
+  };
+
+  const validation = validateActionItem(card);
+  return validation.ok ? ok(json(card)) : fail(`FAIL generated template is invalid\n${formatValidationErrors(validation.errors)}`);
+}
+
 function validateCard(filePath: string | undefined): CommandResult {
   if (!filePath) {
     return fail('FAIL validate-card requires a JSON file path', 2);
@@ -136,6 +213,20 @@ function validateCard(filePath: string | undefined): CommandResult {
   }
 
   return ok(`OK valid action card: ${validation.value.title}`);
+}
+
+function validateState(filePath: string | undefined): CommandResult {
+  if (!filePath) {
+    return fail('FAIL validate-state requires a JSON file path', 2);
+  }
+
+  const parsed = parseJsonFile(filePath);
+  const validation = validateCollectorState(parsed);
+  if (!validation.ok) {
+    return fail(`FAIL invalid collector state: ${filePath}\n${formatValidationErrors(validation.errors)}`);
+  }
+
+  return ok(`OK valid collector state: ${validation.value.source}`);
 }
 
 async function listCards(parsed: ParsedArgs, adapter: HermesCliAdapter): Promise<CommandResult> {
