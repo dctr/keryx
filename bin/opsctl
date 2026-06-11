@@ -3,6 +3,8 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+KERYX_CONFIG=${KERYX_CONFIG:-"$ROOT_DIR/keryx.config.json"}
+export KERYX_CONFIG
 
 if [ -f "$ROOT_DIR/dist/opsctl/cli.js" ]; then
   exec node "$ROOT_DIR/dist/opsctl/cli.js" "$@"
