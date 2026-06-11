@@ -249,7 +249,7 @@ describe('read-only opsctl commands', () => {
 
   it('accepts current Hermes platform delivery target JSON in doctor checks', async () => {
     const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
-    writeInstalledKeryxSkills(hermesHome);
+    writeInstalledKeryxPlugin(hermesHome);
     const runner = vi.fn<HermesRunner>(async (request) => {
       if (request.args[0] === 'kanban') {
         return { stdout: JSON.stringify([]), stderr: '', exitCode: 0 };
@@ -297,9 +297,38 @@ describe('read-only opsctl commands', () => {
     expect(result.stdout).toMatch(/^FAIL\s+hermes:/m);
   });
 
-  it('checks setup-installed skills, dependencies, delivery targets, and collector cron status', async () => {
+  it('fails doctor checks when the Keryx plugin is missing', async () => {
     const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
-    writeInstalledKeryxSkills(hermesHome);
+    const runner = vi.fn<HermesRunner>(async (request) => {
+      if (request.args[0] === 'kanban') {
+        return { stdout: JSON.stringify([]), stderr: '', exitCode: 0 };
+      }
+      if (request.args[0] === 'send') {
+        return { stdout: JSON.stringify({ platforms: {} }), stderr: '', exitCode: 0 };
+      }
+      if (request.args[0] === 'cron') {
+        return { stdout: '', stderr: '', exitCode: 0 };
+      }
+      throw new Error(`unexpected Hermes args: ${request.args.join(' ')}`);
+    });
+
+    const result = await runOpsctl(['doctor'], {
+      config: loadConfig({
+        env: { HERMES_HOME: hermesHome },
+        configPath: null,
+        overrides: { hermesBin: process.execPath, localOnly: true },
+      }),
+      env: { HERMES_HOME: hermesHome, PATH: process.env.PATH },
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toMatch(/^FAIL\s+plugin:/m);
+  });
+
+  it('checks setup-installed plugin, dependencies, delivery targets, and collector cron status', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
     const runner = vi.fn<HermesRunner>(async (request) => {
       if (request.args[0] === 'kanban') {
         return {
@@ -341,7 +370,9 @@ describe('read-only opsctl commands', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toMatch(/^OK\s+hermes-cli:/m);
-    expect(result.stdout).toMatch(/^OK\s+skills:/m);
+    expect(result.stdout).toMatch(/^OK\s+plugin:/m);
+    expect(result.stdout).not.toMatch(/^FAIL\s+skills:/m);
+    expect(result.stdout).not.toContain('$HERMES_HOME/skills/keryx');
     expect(result.stdout).toMatch(/^OK\s+dependencies:/m);
     expect(result.stdout).toMatch(/^OK\s+hermes:/m);
     expect(result.stdout).toMatch(/^OK\s+delivery-targets:/m);
@@ -359,17 +390,9 @@ function writeTempJson(value: unknown, fileName = 'card.json'): string {
   return filePath;
 }
 
-function writeInstalledKeryxSkills(hermesHome: string): void {
-  const requiredFiles = [
-    ['DESCRIPTION.md', 'Keryx skills\n'],
-    ['keryx-worker/SKILL.md', '---\nname: keryx-worker\ndescription: Worker\n---\n'],
-    ['keryx-collector/SKILL.md', '---\nname: keryx-collector\ndescription: Collector\n---\n'],
-    ['keryx-collector-creator/SKILL.md', '---\nname: keryx-collector-creator\ndescription: Creator\n---\n'],
-  ];
-
-  for (const [relativePath, content] of requiredFiles) {
-    const filePath = join(hermesHome, 'skills', 'keryx', relativePath);
-    mkdirSync(filePath.split('/').slice(0, -1).join('/'), { recursive: true });
-    writeFileSync(filePath, content, 'utf8');
-  }
+function writeInstalledKeryxPlugin(hermesHome: string): void {
+  const pluginDir = join(hermesHome, 'plugins', 'keryx');
+  mkdirSync(pluginDir, { recursive: true });
+  writeFileSync(join(pluginDir, 'plugin.yaml'), 'name: keryx\nversion: "0.2.0"\n', 'utf8');
+  writeFileSync(join(pluginDir, '__init__.py'), '# test plugin\n', 'utf8');
 }

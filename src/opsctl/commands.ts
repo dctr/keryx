@@ -420,8 +420,8 @@ async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, options: D
     lines.push({ level: 'FAIL', check: 'hermes-cli', message: `not executable or not on PATH: ${config.hermesBin}` });
   }
 
-  const skillsCheck = checkInstalledSkills(resolveHermesHome(config, options.env));
-  lines.push(skillsCheck);
+  const pluginCheck = checkInstalledPlugin(resolveHermesHome(config, options.env));
+  lines.push(pluginCheck);
 
   if (existsSync(join(options.cwd, 'package.json')) && existsSync(join(options.cwd, 'node_modules'))) {
     lines.push({ level: 'OK', check: 'dependencies', message: 'project dependencies installed' });
@@ -490,20 +490,15 @@ function resolveHermesHome(config: KeryxConfig, env: Record<string, string | und
   return config.hermesHome ?? env.HERMES_HOME ?? join(env.HOME ?? homedir(), '.hermes');
 }
 
-function checkInstalledSkills(hermesHome: string): DoctorLine {
-  const requiredFiles = [
-    'DESCRIPTION.md',
-    'keryx-worker/SKILL.md',
-    'keryx-collector/SKILL.md',
-    'keryx-collector-creator/SKILL.md',
-  ];
-  const missing = requiredFiles.filter((relativePath) => !existsSync(join(hermesHome, 'skills', 'keryx', relativePath)));
+function checkInstalledPlugin(hermesHome: string): DoctorLine {
+  const pluginDir = join(hermesHome, 'plugins', 'keryx');
+  const missing = ['plugin.yaml', '__init__.py'].filter((relativePath) => !existsSync(join(pluginDir, relativePath)));
 
   if (missing.length > 0) {
-    return { level: 'FAIL', check: 'skills', message: `missing ${missing.join(', ')} under ${join(hermesHome, 'skills', 'keryx')}` };
+    return { level: 'FAIL', check: 'plugin', message: `missing ${missing.join(', ')} under ${pluginDir}` };
   }
 
-  return { level: 'OK', check: 'skills', message: `installed under ${join(hermesHome, 'skills', 'keryx')}` };
+  return { level: 'OK', check: 'plugin', message: `installed under ${pluginDir}` };
 }
 
 function findExecutable(bin: string, env: Record<string, string | undefined>): string | undefined {
