@@ -3,6 +3,8 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { validateActionItem } from '../../src/schemas/actionItem';
+
 const repoRoot = process.cwd();
 
 const requiredFiles = [
@@ -26,6 +28,36 @@ const privatePatternExamples = [
   'private.example',
   'telegram:',
   'discord:',
+] as const;
+
+const activeDocsAndTemplates = [
+  'README.md',
+  'AGENTS.md',
+  'collectors/README.md',
+  'collectors/bash-first-template/cron-prompt.md',
+  'collectors/direct-agent-template/cron-prompt.md',
+  'docs/architecture.md',
+  'docs/collector-authoring.md',
+  'docs/security.md',
+  'docs/operations.md',
+] as const;
+
+const collectorWorkflowDocs = [
+  'collectors/README.md',
+  'collectors/bash-first-template/cron-prompt.md',
+  'collectors/direct-agent-template/cron-prompt.md',
+  'docs/collector-authoring.md',
+] as const;
+
+const workerAttachmentDocs = [
+  'README.md',
+  'AGENTS.md',
+  'collectors/README.md',
+  'collectors/bash-first-template/cron-prompt.md',
+  'collectors/direct-agent-template/cron-prompt.md',
+  'docs/architecture.md',
+  'docs/collector-authoring.md',
+  'docs/operations.md',
 ] as const;
 
 describe('collector templates and support docs', () => {
@@ -63,6 +95,76 @@ describe('collector templates and support docs', () => {
       expect(text).toContain('cursor safety');
       expect(text).toContain('initial-status blocked');
       expect(text).toContain('keryx-worker');
+    }
+  });
+
+  it('uses plugin-qualified Keryx skill names wherever collector docs attach skills', () => {
+    for (const relativePath of workerAttachmentDocs) {
+      const text = readRequiredFile(relativePath);
+
+      expect(text, `${relativePath} should mention the plugin-qualified worker skill`).toContain('keryx:keryx-worker');
+      expect(text, `${relativePath} should not document bare worker skill attachment`).not.toMatch(/attach(?:es|ing)? (?:the )?`keryx-worker` skill/i);
+    }
+
+    for (const relativePath of collectorWorkflowDocs) {
+      const text = readRequiredFile(relativePath);
+
+      expect(text, `${relativePath} should mention the plugin-qualified collector skill`).toContain('keryx:keryx-collector');
+      expect(text, `${relativePath} should not document a bare collector skill load`).not.toContain('Skills: keryx-collector');
+      expect(text, `${relativePath} should not document a bare collector skill load`).not.toContain('loads the `keryx-collector` skill');
+      expect(text, `${relativePath} should not document a bare collector skill load`).not.toContain('Load the `keryx-collector` skill');
+    }
+  });
+
+  it('documents the canonical template, schema, validate, and create-card collector workflow', () => {
+    for (const relativePath of collectorWorkflowDocs) {
+      const text = readRequiredFile(relativePath);
+
+      for (const command of [
+        'hermes keryx template-card --source <source> --collector <collector>',
+        'hermes keryx schema action-item',
+        'hermes keryx validate-card',
+        'hermes keryx create-card',
+      ]) {
+        expect(text, `${relativePath} should document ${command}`).toContain(command);
+      }
+    }
+  });
+
+  it('does not document raw Kanban create as a collector default path', () => {
+    for (const relativePath of activeDocsAndTemplates) {
+      const text = readRequiredFile(relativePath);
+
+      expect(text, `${relativePath} should route card creation through hermes keryx create-card`).not.toMatch(/hermes\s+kanban(?:\s+--board\s+\S+)?\s+create/);
+    }
+  });
+
+  it('uses only schema-valid autonomy values in collector examples', () => {
+    const allowed = new Set(['auto', 'minimal', 'research', 'complex']);
+
+    for (const relativePath of collectorWorkflowDocs) {
+      const text = readRequiredFile(relativePath);
+      const autonomyValues = [...text.matchAll(/"autonomy"\s*:\s*"([^"]+)"/g)].map((match) => match[1]);
+
+      for (const autonomy of autonomyValues) {
+        expect(allowed.has(autonomy), `${relativePath} uses invalid autonomy value ${autonomy}`).toBe(true);
+      }
+    }
+  });
+
+  it('keeps documented collector-authoring action-card JSON examples valid against the repository schema', () => {
+    const relativePath = 'docs/collector-authoring.md';
+    const actionItemExamples = extractJsonCodeBlocks(readRequiredFile(relativePath))
+      .map((block) => JSON.parse(block) as unknown)
+      .filter((value) => typeof value === 'object' && value !== null && (value as { schema?: unknown }).schema === 'keryx.action_item.v1');
+
+    expect(actionItemExamples, `${relativePath} should include an action-item example`).not.toHaveLength(0);
+
+    for (const example of actionItemExamples) {
+      const result = validateActionItem(example);
+      const errors = result.ok ? '' : JSON.stringify(result.errors);
+
+      expect(result.ok, `${relativePath} action-item example should validate: ${errors}`).toBe(true);
     }
   });
 
@@ -128,4 +230,8 @@ function readRequiredFile(relativePath: string): string {
 
 function isExecutable(relativePath: string): boolean {
   return Boolean(statSync(join(repoRoot, relativePath)).mode & 0o111);
+}
+
+function extractJsonCodeBlocks(text: string): string[] {
+  return [...text.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) => match[1]);
 }

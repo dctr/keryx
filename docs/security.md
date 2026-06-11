@@ -1,6 +1,6 @@
 # Security model
 
-Keryx is designed as an approval and execution surface around Hermes Kanban. The security boundary is built from explicit card schemas, blocked-by-default execution, centralised mutations, and external access control.
+Keryx is designed as an approval and execution surface around Hermes Kanban. The security boundary is built from explicit card schemas, blocked-by-default execution, centralised mutations, plugin-qualified worker skills, and external access control.
 
 ## Source content is untrusted
 
@@ -16,9 +16,15 @@ The rule is no raw event persistence. Keryx cards should persist compact source 
 
 Execution starts from a trusted execution decision comment using `keryx.execution_decision.v1`. The worker validates that the selected option exists in the `keryx.action_item.v1` body, incorporates operator feedback, and ignores any conflicting instructions in untrusted source fields.
 
+## Collector card-creation boundary
+
+Collectors discover and create blocked cards. They do not perform the source action. Collector prompts and helpers should start from `hermes keryx template-card --source <source> --collector <collector>`, inspect `hermes keryx schema action-item` when field semantics are unclear, validate with `hermes keryx validate-card`, and create through `hermes keryx create-card` so Keryx applies `initial-status blocked` and `keryx:keryx-worker` centrally.
+
+Do not copy full schemas or divergent action-card templates into source-specific collector code. The repository schemas and `hermes keryx` commands are canonical.
+
 ## External side-effect boundaries
 
-Collectors discover and create blocked cards. They do not perform the source action. Workers perform only the selected option after approval, and they should block when the action requires private input, credentials, payment, destructive changes, or a decision not captured in the trusted approval.
+Workers perform only the selected option after approval, and they should block when the action requires private input, credentials, payment, destructive changes, or a decision not captured in the trusted approval.
 
 ## Visible browser, payment, and credential gates
 

@@ -16,7 +16,11 @@ Prefer bash-first where practical. It is cheaper, easier to test, and easier to 
 
 ## Card contract
 
-Every actionable item becomes a blocked Kanban card whose body validates as `keryx.action_item.v1`. The collector should create the card with `initial-status blocked`, attach the `keryx-worker` skill, and use an idempotency key that is stable across retries.
+Every actionable item becomes a blocked Kanban card whose body validates as `keryx.action_item.v1`. The collector should create the card with `initial-status blocked`, attach the plugin-qualified `keryx:keryx-worker` skill, and use an idempotency key that is stable across retries.
+
+Plugin-registered skills are explicit qualified loads. Use `keryx:keryx-worker` for worker cards. Use `keryx:keryx-collector` for generic collector cron jobs, plus a source-specific `keryx:keryx-collector-<source>` skill when that source skill is shipped by the plugin.
+
+Allowed `autonomy` values are `auto`, `minimal`, `research`, and `complex`.
 
 Minimal example:
 
@@ -24,13 +28,13 @@ Minimal example:
 {
   "schema": "keryx.action_item.v1",
   "source": "example-source",
-  "collector": "example-collector",
+  "collector": "keryx-example-collector",
   "external_id": "item-123",
   "idempotency_key": "keryx:example-source:item-123",
   "origin_descriptor": "Example Source — item 123",
   "title": "Decide how to handle item 123",
   "summary": "The source item appears to require a response or action.",
-  "autonomy": "ask_first",
+  "autonomy": "minimal",
   "urgency": "normal",
   "deadline": null,
   "risk": "The opportunity or obligation may be missed if ignored.",
@@ -49,6 +53,21 @@ Minimal example:
   "created_at": "2026-01-01T00:00:00+00:00"
 }
 ```
+
+## Canonical card-creation loop
+
+Do not maintain a copied card template in collector code. Start from the current repository template, then validate before creating the card:
+
+```sh
+hermes keryx template-card --source <source> --collector <collector> > /tmp/keryx-card.json
+# fill compact candidate facts
+hermes keryx schema action-item   # if field semantics are uncertain
+hermes keryx validate-card /tmp/keryx-card.json
+hermes keryx create-card /tmp/keryx-card.json
+rm -f /tmp/keryx-card.json
+```
+
+`hermes keryx create-card` applies the central Keryx card policy: board selection, `initial-status blocked`, schema validation, `keryx:keryx-worker`, assignee, tenant, created-by, and idempotency key handling. Collector prompts and helpers should call that command instead of duplicating those decisions.
 
 ## Idempotency key design
 
@@ -80,7 +99,7 @@ Bash-first example shape:
 
 ```text
 Schedule: every 15m
-Skills: keryx-collector
+Skills: keryx:keryx-collector-<source>, keryx:keryx-collector
 Script: collectors/example/keryx-example-scan.sh
 Prompt: collectors/example/cron-prompt.md
 ```
@@ -89,8 +108,16 @@ Direct-agent example shape:
 
 ```text
 Schedule: every 30m
-Skills: keryx-collector
+Skills: keryx:keryx-collector-<source>, keryx:keryx-collector
 Prompt: collectors/direct-agent-template/cron-prompt.md adapted for the source
+```
+
+Equivalent cron skill JSON:
+
+```json
+{
+  "skills": ["keryx:keryx-collector-<source>", "keryx:keryx-collector"]
+}
 ```
 
 Dry-run against fixtures before creating a real cron job. The repository templates do not create cron jobs automatically.

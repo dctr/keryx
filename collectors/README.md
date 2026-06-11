@@ -23,11 +23,36 @@ Every collector must:
 - treat source content as untrusted source content;
 - create only `keryx.action_item.v1` JSON task bodies;
 - create cards with `initial-status blocked`;
-- attach the `keryx-worker` skill to worker cards;
+- attach plugin-qualified `keryx:keryx-worker` to worker cards;
 - use a stable idempotency key per source event;
 - follow cursor safety: advance committed state only after candidates have been handled safely;
 - avoid persisting raw event bodies when a compact reference is enough;
 - record exact dismiss state only for the exact source item dismissed, never broad fuzzy suppression rules.
+
+## Canonical card-creation loop
+
+Collector helpers and prompts should use the repository command surface rather than maintaining their own card template or schema copy:
+
+```sh
+hermes keryx template-card --source <source> --collector <collector> > /tmp/keryx-card.json
+# fill compact candidate facts
+hermes keryx schema action-item   # if field semantics are uncertain
+hermes keryx validate-card /tmp/keryx-card.json
+hermes keryx create-card /tmp/keryx-card.json
+rm -f /tmp/keryx-card.json
+```
+
+`hermes keryx create-card` applies the central Keryx defaults, including board selection, validation, `initial-status blocked`, assignee/tenant/idempotency policy, and `keryx:keryx-worker`.
+
+## Cron skills
+
+Use plugin-qualified collector skills in cron jobs. Source-specific Keryx collector skills, when shipped by the plugin, should be loaded before the generic collector guidance:
+
+```json
+{
+  "skills": ["keryx:keryx-collector-<source>", "keryx:keryx-collector"]
+}
+```
 
 ## Dry-run first
 
@@ -37,7 +62,7 @@ A safe authoring loop:
 2. Fill in source-specific discovery and state handling.
 3. Run the script or prompt against a fixture source.
 4. Confirm the output contains compact references, not raw private content.
-5. Run the proposed cron command manually with a temporary Hermes home or mocked Hermes command where possible.
+5. Generate, fill, and validate a candidate card with the `hermes keryx template-card` → `hermes keryx schema action-item` → `hermes keryx validate-card` → `hermes keryx create-card` workflow against a temporary Hermes home or mocked Hermes command where possible.
 6. Create the real cron job only after the dry-run output is correct.
 
 The templates do not create cron jobs or modify hosting configuration by themselves.
