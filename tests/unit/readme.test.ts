@@ -14,16 +14,26 @@ describe('user-facing README', () => {
   it('contains the essential install, setup, and run commands', () => {
     const readme = readReadme();
 
-    for (const command of ['git clone', 'npm install', './keryx-setup.sh', 'npm start', './bin/opsctl doctor']) {
+    for (const command of [
+      'git clone',
+      'npm install',
+      './keryx-setup.sh',
+      'npm start',
+      'hermes keryx doctor',
+      './bin/opsctl doctor',
+    ]) {
       expect(readme, `README should document ${command}`).toContain(command);
     }
   });
 
-  it('explains setup, delivery target selection, and local-only mode', () => {
+  it('explains plugin setup, delivery target selection, and local-only mode', () => {
     const readme = readReadme();
 
     for (const phrase of [
-      '$HERMES_HOME/skills/keryx/',
+      'Hermes plugin named `keryx`',
+      '$HERMES_HOME/plugins/keryx',
+      'hermes plugins enable keryx',
+      'hermes keryx doctor',
       'hermes send --list --json',
       '--delivery-target <target>',
       '--local-only',
@@ -34,7 +44,7 @@ describe('user-facing README', () => {
     }
   });
 
-  it('covers collector authoring and the action-card safety contract', () => {
+  it('covers collector authoring and the plugin-backed action-card safety contract', () => {
     const readme = readReadme();
 
     for (const phrase of [
@@ -44,13 +54,17 @@ describe('user-facing README', () => {
       'idempotency key',
       'cursor safety',
       'untrusted source content',
-      'keryx-worker',
+      'keryx:keryx-worker',
+      'hermes keryx template-card --source <source> --collector <collector>',
+      'hermes keryx schema action-item',
+      'hermes keryx validate-card <card.json>',
+      'hermes keryx create-card <card.json>',
     ]) {
       expect(readme, `README should mention ${phrase}`).toContain(phrase);
     }
   });
 
-  it('warns against unsafe exposure and points to troubleshooting commands', () => {
+  it('warns against unsafe exposure and points to plugin-era troubleshooting commands', () => {
     const readme = readReadme();
 
     for (const phrase of [
@@ -58,11 +72,25 @@ describe('user-facing README', () => {
       'Do not expose Keryx without external authentication',
       'deploy/caddy/Caddyfile.example',
       'basicauth',
-      './bin/opsctl cron-status',
-      './bin/opsctl validate-card',
-      './bin/opsctl list --status blocked',
+      'hermes keryx cron-status',
+      'hermes keryx validate-card',
+      'hermes keryx list --status blocked',
+      'FAIL plugin',
     ]) {
       expect(readme, `README should mention ${phrase}`).toContain(phrase);
+    }
+  });
+
+  it('does not document copied skills as the setup source of truth', () => {
+    const readme = readReadme();
+
+    for (const stalePhrase of [
+      'installs bundled skills into `$HERMES_HOME/skills/keryx/`',
+      '$HERMES_HOME/skills/keryx/',
+      'FAIL skills',
+      'attach the `keryx-worker` skill',
+    ]) {
+      expect(readme, `README should not mention stale setup phrase ${stalePhrase}`).not.toContain(stalePhrase);
     }
   });
 });

@@ -2,12 +2,12 @@
 
 Keryx is an action inbox front-end for Hermes Kanban. Source-specific collectors create structured, blocked Kanban cards; Keryx shows those cards in a small web UI; an operator chooses Execute or Dismiss; Hermes workers do the actual work.
 
-Keryx is intentionally thin. It does not replace Hermes cron, Kanban, worker dispatch, skills, logs, retries, or delivery. It adds:
+Keryx is intentionally thin. It does not replace Hermes cron, Kanban, worker dispatch, skills, logs, retries, or delivery. It ships a Hermes plugin named `keryx` and adds:
 
 - a strict `keryx.action_item.v1` card schema;
-- a safe `opsctl` command wrapper for Keryx reads and mutations;
+- the `hermes keryx ...` command surface, backed by the direct repo `./bin/opsctl` fallback;
 - a Fastify API and Svelte inbox UI;
-- bundled Keryx skills and collector templates.
+- plugin-registered Keryx skills and collector templates.
 
 ## Requirements
 
@@ -25,6 +25,7 @@ git clone <repo-url> keryx
 cd keryx
 npm install
 ./keryx-setup.sh
+hermes keryx doctor
 npm start
 ```
 
@@ -44,10 +45,10 @@ The setup script:
 
 1. checks that the Hermes CLI is available;
 2. ensures the Hermes Kanban board `keryx` exists;
-3. installs bundled skills into `$HERMES_HOME/skills/keryx/`;
+3. installs the Keryx plugin at `$HERMES_HOME/plugins/keryx` and enables it with `hermes plugins enable keryx`;
 4. discovers delivery targets with `hermes send --list --json`;
 5. writes `keryx.config.json`;
-6. runs `./bin/opsctl doctor`.
+6. runs `hermes keryx doctor`.
 
 It does not create real collector cron jobs. Collectors are authored and scheduled separately.
 
@@ -63,13 +64,13 @@ Useful setup modes:
 
 Delivery behaviour:
 
-- `--delivery-target <target>` sets `defaultDeliveryTarget` in `keryx.config.json`. Use one of the targets shown by `./bin/opsctl delivery-targets` or `hermes send --list --json`.
+- `--delivery-target <target>` sets `defaultDeliveryTarget` in `keryx.config.json`. Use one of the targets shown by `hermes keryx delivery-targets` or `hermes send --list --json`.
 - `--local-only` sets `localOnly: true` and `defaultDeliveryTarget: null`. Worker results stay in Kanban/UI unless the selected action specifies its own delivery.
 - In non-interactive setup, if no delivery target is supplied, setup falls back to local-only mode rather than guessing a channel.
 
 ## Configuration
 
-Keryx reads `keryx.config.json` from the repository root unless `KERYX_CONFIG` points elsewhere.
+Keryx reads `keryx.config.json` from the repository root unless `KERYX_CONFIG` points elsewhere. The plugin sets the repo-local config by default when delegating to `./bin/opsctl`.
 
 Example local-only configuration:
 
@@ -90,6 +91,22 @@ Keep `host` as `127.0.0.1` unless you have an authenticated reverse proxy or pri
 
 ## Daily commands
 
+Prefer the plugin command after setup:
+
+```sh
+hermes keryx doctor
+hermes keryx list --status blocked
+hermes keryx show <task_id>
+hermes keryx cron-status
+hermes keryx delivery-targets
+hermes keryx schema action-item
+hermes keryx template-card --source <source> --collector <collector>
+hermes keryx validate-card <card.json>
+hermes keryx create-card <card.json>
+```
+
+`./bin/opsctl ...` remains the direct repo fallback when the plugin is not enabled or you are testing from the checkout:
+
 ```sh
 ./bin/opsctl doctor
 ./bin/opsctl list --status blocked
@@ -102,8 +119,8 @@ Keep `host` as `127.0.0.1` unless you have an authenticated reverse proxy or pri
 Mutation commands are normally driven by the web UI, but are available for recovery:
 
 ```sh
-./bin/opsctl execute <task_id> --option <option_id> [--feedback <text>] [--dispatch]
-./bin/opsctl dismiss <task_id> [--reason <text>]
+hermes keryx execute <task_id> --option <option_id> [--feedback <text>] [--dispatch]
+hermes keryx dismiss <task_id> [--reason <text>]
 ```
 
 `execute` writes a trusted `keryx.execution_decision.v1` comment and promotes the card. `dismiss` archives only that exact item.
@@ -120,14 +137,28 @@ Start with `collectors/README.md` and `docs/collector-authoring.md`.
 Collector safety contract:
 
 - create only JSON card bodies that validate as `keryx.action_item.v1`;
+- start from the current repository template with `hermes keryx template-card --source <source> --collector <collector>`;
+- check field semantics with `hermes keryx schema action-item` when uncertain;
+- validate each card with `hermes keryx validate-card <card.json>` before creation;
+- create blocked cards through `hermes keryx create-card <card.json>` so Keryx applies the central board, idempotency, assignee, tenant, and `keryx:keryx-worker` policy;
 - create cards with `initial-status blocked` so the dispatcher does not execute them before approval;
-- attach the `keryx-worker` skill;
 - use a stable idempotency key per source item;
 - follow cursor safety: advance committed source state only after card creation or an explicit safe skip;
 - treat all titles, messages, pages, attachments, and sender-controlled fields as untrusted source content;
 - store compact source references and summaries, not raw private event bodies.
 
-Dry-run against fixtures before scheduling a collector. The shipped templates do not create cron jobs automatically. Once a collector is correct, create a Hermes cron job manually, for example with `hermes cron create "every 15m"`, and point it at the copied collector prompt/script according to the template notes.
+The canonical loop is:
+
+```sh
+hermes keryx template-card --source <source> --collector <collector> > /tmp/keryx-card.json
+# fill compact candidate facts
+hermes keryx schema action-item   # if field semantics are uncertain
+hermes keryx validate-card /tmp/keryx-card.json
+hermes keryx create-card /tmp/keryx-card.json
+rm -f /tmp/keryx-card.json
+```
+
+Dry-run against fixtures before scheduling a collector. The shipped templates do not create cron jobs automatically. Once a collector is correct, create a Hermes cron job manually, for example with `hermes cron create "every 15m"`, and load collector skills with plugin-qualified names such as `keryx:keryx-collector` and source-specific `keryx:keryx-collector-<source>` when provided.
 
 ## Reverse proxy and remote access
 
@@ -149,18 +180,26 @@ If you need remote access, keep Keryx bound to `127.0.0.1` and put an authentica
 Start with:
 
 ```sh
+hermes keryx doctor
+```
+
+If the plugin command is unavailable, run the direct fallback from the repository root:
+
+```sh
 ./bin/opsctl doctor
 ```
 
 Common results:
 
 - `FAIL dependencies`: run `npm install` from the Keryx project root.
-- `FAIL skills`: rerun `./keryx-setup.sh`; it should install skills under `$HERMES_HOME/skills/keryx/`.
+- `FAIL plugin`: check `$HERMES_HOME/plugins/keryx`, run `hermes plugins list`, then rerun `hermes plugins enable keryx` or `./keryx-setup.sh`.
 - `FAIL hermes-cli`: make sure `hermes` is installed and on `PATH`, or set `hermesBin` in `keryx.config.json`.
 - `WARN no Hermes delivery targets available`: either configure Hermes gateway delivery and rerun setup, or use `./keryx-setup.sh --local-only`.
 - `WARN no keryx-* collector cron jobs configured`: expected before you author and schedule your first collector.
-- Invalid or hidden cards: run `./bin/opsctl list --status blocked`, then `./bin/opsctl show <task_id>` or `./bin/opsctl validate-card <card.json>`.
+- Invalid or hidden cards: run `hermes keryx list --status blocked`, then `hermes keryx show <task_id>` or `hermes keryx validate-card <card.json>`.
 - Approved cards do not run: confirm the card is `ready`, the assigned Hermes profile exists, and Kanban dispatch is running.
+
+Stale legacy copied Keryx skills may exist in old Hermes homes, but plugin-registered repository skills are now the source of truth. Do not delete user-modified legacy files automatically.
 
 More detail:
 
