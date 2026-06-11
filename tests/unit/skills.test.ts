@@ -56,6 +56,14 @@ describe('bundled Keryx skills', () => {
       expect(bundledSkillText).toContain(phrase);
     }
   });
+
+  it('documents feedback-driven automation suggestions in the worker skill', () => {
+    const workerSkillText = readFileSync(join(categoryRoot, 'keryx-worker', 'SKILL.md'), 'utf8');
+
+    expect(workerSkillText).toContain('generic or can be generalised');
+    expect(workerSkillText).toContain('keryx-collector-$SOURCE');
+    expect(workerSkillText).toContain('keryx:automation-suggestion:<source>:<stable-slug>');
+  });
 });
 
 function parseSkill(path: string): { frontmatter: Record<string, string>; body: string } {
