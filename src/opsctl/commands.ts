@@ -71,6 +71,9 @@ Global options:
 // the README, which is intentionally version-neutral) so docs and enforcement stay
 // decoupled.
 const MINIMUM_HERMES_VERSION = '0.16.0';
+const COLLECTOR_CREATOR_BUNDLE_FILE = 'keryx-collector-creator.yaml';
+const COLLECTOR_CREATOR_BUNDLE_COMMAND = '/keryx-collector-creator';
+const COLLECTOR_CREATOR_PLUGIN_SKILL = 'keryx:keryx-collector-creator';
 
 const SCHEMA_COMMANDS = {
   'action-item': {
@@ -457,8 +460,10 @@ async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, options: D
     lines.push({ level: 'FAIL', check: 'hermes-cli', message: `not executable or not on PATH: ${config.hermesBin}` });
   }
 
-  const pluginCheck = checkInstalledPlugin(resolveHermesHome(config, options.env));
+  const hermesHome = resolveHermesHome(config, options.env);
+  const pluginCheck = checkInstalledPlugin(hermesHome);
   lines.push(pluginCheck);
+  lines.push(checkCollectorCreatorBundle(hermesHome));
 
   if (hasInstalledDependencies(PROJECT_ROOT)) {
     lines.push({ level: 'OK', check: 'dependencies', message: 'project dependencies installed' });
@@ -591,6 +596,40 @@ function checkInstalledPlugin(hermesHome: string): DoctorLine {
     level: 'FAIL',
     check: 'plugin',
     message: `installed but not enabled in ${join(hermesHome, 'config.yaml')}; ${enableGuidance}`,
+  };
+}
+
+function checkCollectorCreatorBundle(hermesHome: string): DoctorLine {
+  const bundlePath = join(hermesHome, 'skill-bundles', COLLECTOR_CREATOR_BUNDLE_FILE);
+
+  if (!existsSync(bundlePath)) {
+    return {
+      level: 'WARN',
+      check: 'collector-creator',
+      message: `bundle missing; rerun ./keryx-setup.sh to install ${COLLECTOR_CREATOR_BUNDLE_COMMAND}`,
+    };
+  }
+
+  let text: string;
+  try {
+    text = readFileSync(bundlePath, 'utf8');
+  } catch {
+    return {
+      level: 'WARN',
+      check: 'collector-creator',
+      message: `bundle does not load ${COLLECTOR_CREATOR_PLUGIN_SKILL}; rerun ./keryx-setup.sh --force to restore`,
+    };
+  }
+
+  const skills = extractStringList(text.split(/\r?\n/), 'skills');
+  if (skills.includes(COLLECTOR_CREATOR_PLUGIN_SKILL)) {
+    return { level: 'OK', check: 'collector-creator', message: `${COLLECTOR_CREATOR_BUNDLE_COMMAND} bundle installed` };
+  }
+
+  return {
+    level: 'WARN',
+    check: 'collector-creator',
+    message: `bundle does not load ${COLLECTOR_CREATOR_PLUGIN_SKILL}; rerun ./keryx-setup.sh --force to restore`,
   };
 }
 

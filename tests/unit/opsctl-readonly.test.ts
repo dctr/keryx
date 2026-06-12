@@ -408,6 +408,45 @@ describe('read-only opsctl commands', () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it('reports OK collector-creator when the setup bundle loads the plugin creator skill', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
+    writeCollectorCreatorBundle(hermesHome, 'skills:\n  - keryx:keryx-collector-creator\n');
+
+    const result = await runDoctor(hermesHome);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/^OK\s+collector-creator: \/keryx-collector-creator bundle installed$/m);
+  });
+
+  it('warns instead of failing when the collector creator bundle is missing', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
+
+    const result = await runDoctor(hermesHome);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(
+      /^WARN\s+collector-creator: bundle missing; rerun \.\/keryx-setup\.sh to install \/keryx-collector-creator$/m,
+    );
+  });
+
+  it('warns instead of failing when the collector creator bundle points elsewhere', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
+    writeCollectorCreatorBundle(hermesHome, 'skills:\n  - keryx:keryx-collector\n');
+
+    const result = await runDoctor(hermesHome);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(
+      /^WARN\s+collector-creator: bundle does not load keryx:keryx-collector-creator; rerun \.\/keryx-setup\.sh --force to restore$/m,
+    );
+  });
+
   it('reports OK plugin when enabled via a same-indent block list (Hermes serialiser format)', async () => {
     const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
     writeInstalledKeryxPlugin(hermesHome);
@@ -479,6 +518,7 @@ describe('read-only opsctl commands', () => {
     const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
     writeInstalledKeryxPlugin(hermesHome);
     writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
+    writeCollectorCreatorBundle(hermesHome);
     const runner = vi.fn<HermesRunner>(async (request) => {
       if (request.args[0] === '--version') {
         return { stdout: 'Hermes Agent v0.16.0 (2026.6.5) · upstream 046f444d\n', stderr: '', exitCode: 0 };
@@ -524,6 +564,7 @@ describe('read-only opsctl commands', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toMatch(/^OK\s+hermes-cli:/m);
     expect(result.stdout).toMatch(/^OK\s+plugin:/m);
+    expect(result.stdout).toMatch(/^OK\s+collector-creator:/m);
     expect(result.stdout).not.toMatch(/^FAIL\s+skills:/m);
     expect(result.stdout).not.toContain('$HERMES_HOME/skills/keryx');
     expect(result.stdout).toMatch(/^OK\s+dependencies:/m);
@@ -712,6 +753,15 @@ function writeInstalledKeryxPlugin(hermesHome: string): void {
   mkdirSync(pluginDir, { recursive: true });
   writeFileSync(join(pluginDir, 'plugin.yaml'), 'name: keryx\nversion: "0.2.0"\n', 'utf8');
   writeFileSync(join(pluginDir, '__init__.py'), '# test plugin\n', 'utf8');
+}
+
+function writeCollectorCreatorBundle(
+  hermesHome: string,
+  content = 'name: keryx-collector-creator\ndescription: Design and author new Keryx collectors.\nskills:\n  - keryx:keryx-collector-creator\n',
+): void {
+  const bundleDir = join(hermesHome, 'skill-bundles');
+  mkdirSync(bundleDir, { recursive: true });
+  writeFileSync(join(bundleDir, 'keryx-collector-creator.yaml'), content, 'utf8');
 }
 
 function writeHermesPluginConfig(hermesHome: string, plugins: { enabled?: string[]; disabled?: string[] }): void {
