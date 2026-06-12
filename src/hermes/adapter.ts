@@ -203,7 +203,7 @@ function isAllowedCronArgs(args: readonly string[]): boolean {
 export function parseKanbanTasks(json: string): KanbanTask[] {
   const parsed = parseJson(json);
   if (!Array.isArray(parsed)) {
-    throw new Error('Hermes 0.16 Kanban list JSON did not contain a task array');
+    throw new Error('Hermes Kanban list JSON did not contain a task array');
   }
 
   return parsed.map(normaliseKanbanTask);
@@ -212,7 +212,7 @@ export function parseKanbanTasks(json: string): KanbanTask[] {
 export function parseKanbanTask(json: string): KanbanTask {
   const parsed = parseJson(json);
   if (!isPlainObject(parsed) || !isPlainObject(parsed.task)) {
-    throw new Error('Hermes 0.16 Kanban show JSON did not contain a task object');
+    throw new Error('Hermes Kanban show JSON did not contain a task object');
   }
   return normaliseKanbanTask(parsed.task);
 }

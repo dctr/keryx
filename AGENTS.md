@@ -10,7 +10,8 @@ Run from the repository root.
 npm install              # install dependencies
 npm run lint            # TypeScript check via tsc --noEmit
 npm run typecheck       # svelte-check plus TypeScript check
-npm test                # Vitest unit and integration tests
+npm test                # Vitest unit and integration tests (single run)
+npm run test:watch      # Vitest in watch mode (interactive use only)
 npm run build           # Vite client build plus server build
 npm run e2e             # Playwright tests; starts Vite on 127.0.0.1:5173
 npm start               # production-style local server on configured host/port

@@ -122,6 +122,13 @@ describe('user-facing README', () => {
       expect(readme, `README should not mention stale setup phrase ${stalePhrase}`).not.toContain(stalePhrase);
     }
   });
+
+  it('states a version-neutral Hermes CLI requirement instead of pinning an explicit version', () => {
+    const readme = readReadme();
+
+    expect(readme, 'README should not pin an explicit Hermes CLI version').not.toMatch(/Hermes Agent CLI v?\d+\.\d+/);
+    expect(readme).toMatch(/a recent Hermes Agent CLI/i);
+  });
 });
 
 function readReadme(): string {

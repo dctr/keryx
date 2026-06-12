@@ -104,13 +104,15 @@ describe('Hermes CLI adapter', () => {
     expect(() => assertAllowedHermesArgs(['kanban', '--board', 'keryx', 'show', 't_1', '--json'])).not.toThrow();
   });
 
-  it('parses Hermes 0.16 Kanban JSON envelopes', () => {
+  it('parses Hermes Kanban JSON envelopes', () => {
     expect(parseKanbanTasks(JSON.stringify([{ id: 't_2', status: 'done' }]))).toEqual([{ id: 't_2', status: 'done' }]);
     expect(parseKanbanTask(JSON.stringify({ task: { id: 't_3', title: 'Single' } }))).toEqual({ id: 't_3', title: 'Single' });
-    expect(() => parseKanbanTasks(JSON.stringify({ tasks: [{ id: 't_1', status: 'blocked' }] }))).toThrow(/Hermes 0\.16/);
+    expect(() => parseKanbanTasks(JSON.stringify({ tasks: [{ id: 't_1', status: 'blocked' }] }))).toThrow(
+      /Hermes Kanban list JSON did not contain a task array/,
+    );
   });
 
-  it('normalises Hermes 0.16 send list JSON into delivery targets', () => {
+  it('normalises Hermes send list JSON into delivery targets', () => {
     expect(
       parseDeliveryTargets(
         JSON.stringify({

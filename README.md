@@ -11,7 +11,7 @@ Keryx is intentionally thin. It does not replace Hermes cron, Kanban, worker dis
 
 ## Requirements
 
-- Hermes Agent CLI v0.16.0 or newer installed and configured on `PATH` as `hermes`.
+- A recent Hermes Agent CLI installed and configured on `PATH` as `hermes`. The minimum supported version is enforced by `hermes keryx doctor`.
   - See [Hermes Docs](https://hermes-agent.nousresearch.com/docs/)
 - Node.js 22 or newer.
 - npm.
