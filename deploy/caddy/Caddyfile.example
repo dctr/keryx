@@ -1,6 +1,17 @@
 # Example Caddy route for Keryx.
 # Do not expose Keryx without external authentication.
 # Replace the host and hashed password before use.
+#
+# Host-header note: Keryx enforces a Host-header allowlist (DNS-rebinding
+# defence) that accepts only localhost/127.0.0.1/[::1] by default. Caddy's
+# reverse_proxy forwards the original public Host (here keryx.example.invalid),
+# which Keryx will reject with 403 FORBIDDEN_HOST unless you either:
+#   - start Keryx with KERYX_ALLOWED_HOSTS=keryx.example.invalid, or
+#   - have Caddy rewrite the upstream Host to a loopback name, e.g.
+#       reverse_proxy 127.0.0.1:4173 {
+#         header_up Host 127.0.0.1
+#       }
+# See docs/security.md (Local UI exposure) for details.
 
 keryx.example.invalid {
   basicauth {

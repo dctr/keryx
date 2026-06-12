@@ -8,6 +8,7 @@ import { type KeryxConfig, loadConfig } from '../config';
 import { HermesCliAdapter } from '../hermes/adapter';
 import type { HermesRunner } from '../hermes/types';
 import { runOpsctl as defaultRunOpsctl, type RunOpsctlOptions } from '../opsctl/commands';
+import { isHostAllowed, resolveAllowedHosts } from './hostGuard';
 import { registerApiRoutes, type OpsctlRunner, type ServerHermesAdapter } from './routes';
 
 export interface CreateServerOptions {
@@ -30,6 +31,7 @@ export function createServer(options: CreateServerOptions = {}): FastifyInstance
   const config = options.config ?? loadConfig({ env: options.env, cwd: options.cwd, configPath: options.configPath });
   const adapter = options.adapter ?? new HermesCliAdapter(config, options.hermesRunner);
   const server = Fastify({ logger: false });
+  registerHostGuard(server, options.env ?? process.env);
   const opsctlOptions: RunOpsctlOptions = {
     config,
     configPath: options.configPath,
@@ -49,6 +51,22 @@ export function createServer(options: CreateServerOptions = {}): FastifyInstance
   registerStaticWebRoutes(server, options.webRoot === null ? null : (options.webRoot ?? resolve(options.cwd ?? process.cwd(), 'dist/web')));
 
   return server;
+}
+
+// Enforce a Host-header allowlist before any route runs (DNS-rebinding defence).
+// The server binds to localhost with no built-in auth, so a Host check stops a
+// malicious page from reaching the local API via DNS rebinding. See hostGuard.ts
+// for the allowlist rules and the documented missing-Host policy.
+function registerHostGuard(server: FastifyInstance, env: Record<string, string | undefined>): void {
+  const allowedHosts = resolveAllowedHosts(env);
+  server.addHook('onRequest', async (request, reply) => {
+    if (!isHostAllowed(request.headers.host, allowedHosts)) {
+      reply.header('cache-control', 'no-store');
+      return reply
+        .code(403)
+        .send({ ok: false, error: { code: 'FORBIDDEN_HOST', message: 'Host header is not allowed' } });
+    }
+  });
 }
 
 function registerStaticWebRoutes(server: FastifyInstance, webRoot: string | null): void {
