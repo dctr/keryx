@@ -82,6 +82,20 @@ const sourceSpecificSkillDocs = [
   'docs/operations.md',
 ] as const;
 
+const collectorCreatorCommandDocs = [
+  'README.md',
+  'docs/collector-authoring.md',
+  'docs/operations.md',
+] as const;
+
+const slashCommandDocs = [
+  ...activeDocsAndTemplates,
+  'skills/keryx/DESCRIPTION.md',
+  'skills/keryx/keryx-collector-creator/SKILL.md',
+  'skills/keryx/keryx-worker/SKILL.md',
+  'skills/keryx/keryx-collector/SKILL.md',
+] as const;
+
 const workerAttachmentDocs = [
   'README.md',
   'AGENTS.md',
@@ -164,6 +178,54 @@ describe('collector templates and support docs', () => {
         'keryx:keryx-collector-<source>',
       );
     }
+  });
+
+  it('documents the user-facing collector creator slash command without plugin-qualified slash-command forms', () => {
+    for (const relativePath of collectorCreatorCommandDocs) {
+      const text = readRequiredFile(relativePath);
+
+      expect(text, `${relativePath} should document the collector creator slash command`).toContain(
+        '/keryx-collector-creator',
+      );
+    }
+
+    const offenders: string[] = [];
+
+    for (const relativePath of slashCommandDocs) {
+      const text = readRequiredFile(relativePath);
+      text.split('\n').forEach((line, index) => {
+        if (/\/keryx(?::|\*)/.test(line)) {
+          offenders.push(`${relativePath}:${index + 1}: ${line.trim()}`);
+        }
+      });
+    }
+
+    expect(
+      offenders,
+      `Keryx plugin skills are not slash commands; document /keryx-collector-creator instead:\n${offenders.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('never instructs attaching unqualified generic Keryx runtime skills to cards or cron jobs', () => {
+    const offenders: string[] = [];
+
+    for (const relativePath of slashCommandDocs) {
+      const text = readRequiredFile(relativePath);
+      text.split('\n').forEach((line, index) => {
+        const talksAboutAttachment = /\b(attach|attached|attaches|attaching|load|loaded|loads|loading|skill|skills)\b/i.test(line);
+        if (!talksAboutAttachment) {
+          return;
+        }
+        if (hasBareGenericRuntimeSkill(line)) {
+          offenders.push(`${relativePath}:${index + 1}: ${line.trim()}`);
+        }
+      });
+    }
+
+    expect(
+      offenders,
+      `Generic runtime skills must be attached plugin-qualified; created keryx-collector-<source> skills remain unqualified:\n${offenders.join('\n')}`,
+    ).toEqual([]);
   });
 
   it('documents the canonical template, schema, validate, and create-card collector workflow', () => {
@@ -424,4 +486,11 @@ function isExecutable(relativePath: string): boolean {
 
 function extractJsonCodeBlocks(text: string): string[] {
   return [...text.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) => match[1]);
+}
+
+function hasBareGenericRuntimeSkill(line: string): boolean {
+  const withoutQualifiedNames = line.replaceAll('keryx:keryx-worker', '').replaceAll('keryx:keryx-collector', '');
+
+  return /(?<![:\w-])keryx-worker(?![\w-])/.test(withoutQualifiedNames)
+    || /(?<![:\w-])keryx-collector(?![\w-])/.test(withoutQualifiedNames);
 }

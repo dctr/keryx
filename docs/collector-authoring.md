@@ -2,6 +2,14 @@
 
 A collector turns source changes into Keryx action cards. The aim is not to ingest everything; it is to surface only useful decisions or safe automations.
 
+Start a new collector design from Hermes with:
+
+```text
+/keryx-collector-creator create a collector for <source>
+```
+
+Keryx runtime skills are plugin-qualified and intentionally hidden from `/skills`. Cards load `keryx:keryx-worker`; collector cron jobs load `keryx:keryx-collector`; the user-facing collector designer is exposed through the setup-managed `/keryx-collector-creator` bundle.
+
 ## Choose a pattern
 
 ### Bash-first

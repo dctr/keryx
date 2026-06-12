@@ -7,6 +7,8 @@ description: Design and author new Keryx collectors. Use when creating or modify
 
 Author collectors that read a source, detect genuinely new items, and turn actionable items into blocked Keryx Kanban cards. Prefer cheap deterministic discovery; use agents only where judgement or fragile access is required.
 
+Operators normally invoke this workflow through the setup-managed `/keryx-collector-creator` bundle. The hidden repository skill identity remains `keryx:keryx-collector-creator`; do not tell users to look for plugin skills in `/skills`.
+
 ## 1. Scope the source and choose the pattern
 
 1. If the source is not precise, ask for the exact system, account/scope, access method, and examples of items that should or should not produce cards.

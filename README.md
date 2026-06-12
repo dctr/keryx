@@ -46,8 +46,9 @@ The setup script:
 1. checks that the Hermes CLI is available;
 2. ensures the Hermes Kanban board `keryx` exists;
 3. installs the Keryx plugin at `$HERMES_HOME/plugins/keryx` and enables it with `hermes plugins enable keryx`;
-4. writes `keryx.config.json` (existing configs are preserved by default — see below);
-5. runs `hermes keryx doctor`.
+4. installs the user-facing collector creator bundle at `$HERMES_HOME/skill-bundles/keryx-collector-creator.yaml`, exposing `/keryx-collector-creator`;
+5. writes `keryx.config.json` (existing configs are preserved by default — see below);
+6. runs `hermes keryx doctor`.
 
 It does not create real collector cron jobs. Collectors are authored and scheduled separately.
 
@@ -59,7 +60,9 @@ Useful setup modes:
 ./keryx-setup.sh --force
 ```
 
-`--force` replaces an existing conflicting Keryx plugin path and overwrites an existing `keryx.config.json`. Without `--force`, an existing `keryx.config.json` is kept: interactive runs are prompted (`keryx.config.json exists; overwrite? [y/N]`, defaulting to keep), while non-interactive runs keep the file and print a `WARN` telling you to rerun with `--force`. `--dry-run` reports whether it would write, keep, or overwrite without touching the file.
+`--force` replaces an existing conflicting Keryx plugin path, restores a conflicting collector creator bundle, and overwrites an existing `keryx.config.json`. Without `--force`, an existing `keryx.config.json` or conflicting bundle is kept: interactive runs are prompted for the config (`keryx.config.json exists; overwrite? [y/N]`, defaulting to keep), while non-interactive runs keep the file and print a `WARN` telling you to rerun with `--force`. `--dry-run` reports whether it would write, keep, or overwrite without touching the file.
+
+Plugin-registered Keryx runtime skills are explicit qualified loads and intentionally hidden from `/skills`: cards use `keryx:keryx-worker`, and cron jobs use `keryx:keryx-collector`. The operator-facing collector designer is exposed separately through the setup-managed `/keryx-collector-creator` bundle.
 
 Delivery behaviour:
 
@@ -129,6 +132,12 @@ Collector templates live in `collectors/`:
 
 Start with `collectors/README.md` and `docs/collector-authoring.md`.
 
+Start a new collector design from Hermes with:
+
+```text
+/keryx-collector-creator create a collector for <source>
+```
+
 Collector safety contract:
 
 - create only JSON card bodies that validate as `keryx.action_item.v1`;
@@ -188,6 +197,7 @@ Common results:
 - `FAIL hermes-cli`: make sure `hermes` is installed and on `PATH`, or set `hermesBin` in `keryx.config.json`.
 - `WARN no Hermes delivery targets available`: expected when no Hermes gateway delivery is configured; configure a target and rerun `hermes keryx delivery-targets` if a worker action needs to deliver outside the local UI.
 - `WARN no keryx-* collector cron jobs configured`: expected before you author and schedule your first collector.
+- `WARN collector-creator`: rerun `./keryx-setup.sh` to install or `./keryx-setup.sh --force` to restore the `/keryx-collector-creator` bundle.
 - Invalid or hidden cards: run `hermes keryx list --status blocked`, then `hermes keryx show <task_id>` or `hermes keryx validate-card <card.json>`.
 - Approved cards do not run: confirm the card is `ready`, the assigned Hermes profile exists, and Kanban dispatch is running.
 

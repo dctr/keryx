@@ -32,6 +32,8 @@ describe('user-facing README', () => {
     for (const phrase of [
       'Hermes plugin named `keryx`',
       '$HERMES_HOME/plugins/keryx',
+      '$HERMES_HOME/skill-bundles/keryx-collector-creator.yaml',
+      '/keryx-collector-creator',
       'hermes plugins enable keryx',
       'hermes keryx doctor',
       'hermes keryx delivery-targets',
@@ -66,6 +68,7 @@ describe('user-facing README', () => {
 
     for (const phrase of [
       'collectors/',
+      '/keryx-collector-creator create a collector for <source>',
       'keryx.action_item.v1',
       'initial-status blocked',
       'idempotency key',

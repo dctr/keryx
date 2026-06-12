@@ -18,6 +18,8 @@ Run `hermes keryx doctor` after setup and after changing Hermes configuration. I
 
 Stale copied skill files from an older installation may exist, but they are no longer the source of truth. Do not delete user-modified skill files automatically; the plugin-registered repository skills should be loaded with names such as `keryx:keryx-worker` and `keryx:keryx-collector`.
 
+Plugin skills are explicit qualified loads and intentionally hidden from `/skills`. Use `keryx:keryx-worker` for Kanban cards and `keryx:keryx-collector` for collector cron jobs. The operator-facing collector designer is a setup-managed bundle at `$HERMES_HOME/skill-bundles/keryx-collector-creator.yaml`; start it with `/keryx-collector-creator create a collector for <source>`. If doctor warns about `collector-creator`, rerun `./keryx-setup.sh` to install the bundle or `./keryx-setup.sh --force` to restore a conflicting bundle.
+
 ## Troubleshooting cron jobs
 
 1. List scheduled jobs and find the collector by name.

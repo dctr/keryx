@@ -98,6 +98,18 @@ describe('bundled Keryx skills', () => {
     expect(workerText).not.toContain('inspect `keryx-collector-creator`');
   });
 
+  it('documents the creator bundle as the operator-facing slash command', () => {
+    const descriptionText = readFileSync(join(categoryRoot, 'DESCRIPTION.md'), 'utf8');
+    const collectorCreatorText = readFileSync(join(categoryRoot, 'keryx-collector-creator', 'SKILL.md'), 'utf8');
+    const workerText = readFileSync(join(categoryRoot, 'keryx-worker', 'SKILL.md'), 'utf8');
+
+    for (const skillText of [descriptionText, collectorCreatorText, workerText]) {
+      expect(skillText).toContain('/keryx-collector-creator');
+      expect(skillText).not.toContain('/keryx:keryx-collector-creator');
+      expect(skillText).not.toContain('/keryx:*');
+    }
+  });
+
   it('validates cards and decisions through the keryx CLI surface, not in-repo TS imports', () => {
     const workerText = readFileSync(join(categoryRoot, 'keryx-worker', 'SKILL.md'), 'utf8');
 

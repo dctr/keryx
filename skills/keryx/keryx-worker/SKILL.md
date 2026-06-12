@@ -38,7 +38,7 @@ The Keryx dashboard can send free-text `user_feedback`. Use it for the current e
 - Create suggestion cards through `hermes keryx template-card`, `hermes keryx validate-card`, and `hermes keryx create-card` where available; use `./bin/opsctl ...` only as the direct repository fallback.
 - The suggestion card must validate as `keryx.action_item.v1`, use worker skill `keryx:keryx-worker`, and use a stable idempotency key such as `keryx:automation-suggestion:<source>:<stable-slug>` so repeated similar feedback does not create duplicates.
 - Include only the generalised automation, source/collector name, originating Keryx card ID, a short sanitised feedback quote if useful, proposed scope/conditions, and caveats. Do not persist raw source bodies or private details.
-- Give the suggestion card an option whose execution prompt tells the future worker to load `skill-creator`, inspect `keryx:keryx-collector-creator`, and update the created collector skill `keryx-collector-$SOURCE` in Hermes' space with the proposed automation after approval — or the explicitly named external source skill if it is not a Keryx-created collector skill.
+- Give the suggestion card an option whose execution prompt tells the future worker to load `skill-creator`, inspect `keryx:keryx-collector-creator`, and update the created collector skill `keryx-collector-$SOURCE` in Hermes' space with the proposed automation after approval — or the explicitly named external source skill if it is not a Keryx-created collector skill. Operators can start broader collector redesign through `/keryx-collector-creator`; keep runtime worker cards on `keryx:keryx-worker`.
 
 ## Completion decision
 
