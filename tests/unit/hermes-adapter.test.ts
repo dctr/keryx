@@ -6,6 +6,7 @@ import {
   assertAllowedHermesArgs,
   parseDeliveryTargets,
   parseCronListText,
+  parseHermesVersion,
   parseKanbanTask,
   parseKanbanTasks,
 } from '../../src/hermes/adapter';
@@ -169,6 +170,36 @@ describe('Hermes CLI adapter', () => {
         last_status: 'error',
       },
     ]);
+  });
+
+  it('runs the allowlisted --version command shape and returns raw CLI output', async () => {
+    const versionOutput = 'Hermes Agent v0.16.0 (2026.6.5) · upstream 046f444d\nProject: /home/x/.hermes\nPython: 3.11.15\n';
+    const runner = vi.fn<HermesRunner>(async () => ({ stdout: versionOutput, stderr: '', exitCode: 0 }));
+    const adapter = new HermesCliAdapter(loadConfig({ env: {}, configPath: null }), runner);
+
+    await expect(adapter.getVersion()).resolves.toBe(versionOutput);
+    expect(runner).toHaveBeenCalledWith({ bin: 'hermes', args: ['--version'], env: {} });
+  });
+
+  it('allowlists the --version shape but no other top-level Hermes commands', () => {
+    expect(() => assertAllowedHermesArgs(['--version'])).not.toThrow();
+    expect(() => assertAllowedHermesArgs(['version'])).toThrow(/not allowlisted/i);
+    expect(() => assertAllowedHermesArgs(['--version', '--json'])).toThrow(/not allowlisted/i);
+  });
+
+  it('parses a semver from real Hermes --version output defensively', () => {
+    // Observed `hermes --version` output format (first line carries the version):
+    //   Hermes Agent v0.16.0 (2026.6.5) · upstream 046f444d
+    expect(
+      parseHermesVersion('Hermes Agent v0.16.0 (2026.6.5) · upstream 046f444d\nPython: 3.11.15\n'),
+    ).toBe('0.16.0');
+    expect(parseHermesVersion('Hermes Agent v1.2.3')).toBe('1.2.3');
+    // Tolerates leading noise / differing prefixes; takes the first semver.
+    expect(parseHermesVersion('version: 0.16.10 (build 9)')).toBe('0.16.10');
+    // Unparsable / cosmetic-only output yields null (caller WARNs, not FAILs).
+    expect(parseHermesVersion('Hermes Agent (dev build)')).toBeNull();
+    expect(parseHermesVersion('')).toBeNull();
+    expect(parseHermesVersion('v0.16')).toBeNull();
   });
 });
 

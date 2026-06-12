@@ -306,6 +306,9 @@ describe('read-only opsctl commands', () => {
     writeInstalledKeryxPlugin(hermesHome);
     writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
     const runner = vi.fn<HermesRunner>(async (request) => {
+      if (request.args[0] === '--version') {
+        return { stdout: 'Hermes Agent v0.16.0 (2026.6.5) · upstream 046f444d\n', stderr: '', exitCode: 0 };
+      }
       if (request.args[0] === 'kanban') {
         return { stdout: JSON.stringify([]), stderr: '', exitCode: 0 };
       }
@@ -354,6 +357,9 @@ describe('read-only opsctl commands', () => {
   it('fails doctor checks when the Keryx plugin is missing', async () => {
     const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
     const runner = vi.fn<HermesRunner>(async (request) => {
+      if (request.args[0] === '--version') {
+        return { stdout: 'Hermes Agent v0.16.0 (2026.6.5) · upstream 046f444d\n', stderr: '', exitCode: 0 };
+      }
       if (request.args[0] === 'kanban') {
         return { stdout: JSON.stringify([]), stderr: '', exitCode: 0 };
       }
@@ -463,6 +469,9 @@ describe('read-only opsctl commands', () => {
     writeInstalledKeryxPlugin(hermesHome);
     writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
     const runner = vi.fn<HermesRunner>(async (request) => {
+      if (request.args[0] === '--version') {
+        return { stdout: 'Hermes Agent v0.16.0 (2026.6.5) · upstream 046f444d\n', stderr: '', exitCode: 0 };
+      }
       if (request.args[0] === 'kanban') {
         return {
           stdout: JSON.stringify([{ id: 't_ok', title: 'OK card', status: 'blocked', body: JSON.stringify(validActionItem) }]),
@@ -521,6 +530,9 @@ describe('read-only opsctl commands', () => {
     writeInstalledKeryxPlugin(hermesHome);
     writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
     const runner = vi.fn<HermesRunner>(async (request) => {
+      if (request.args[0] === '--version') {
+        return { stdout: 'Hermes Agent v0.16.0 (2026.6.5) · upstream 046f444d\n', stderr: '', exitCode: 0 };
+      }
       if (request.args[0] === 'kanban') {
         return { stdout: JSON.stringify([]), stderr: '', exitCode: 0 };
       }
@@ -548,7 +560,134 @@ describe('read-only opsctl commands', () => {
     expect(result.stdout).toMatch(/^OK\s+dependencies: project dependencies installed/m);
     expect(result.stdout).not.toContain('run `npm install` from the Keryx project root');
   });
+
+  it('reports OK hermes-version when the CLI is at the minimum supported version', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
+
+    const result = await runDoctorWithVersion(hermesHome, {
+      stdout: 'Hermes Agent v0.16.0 (2026.6.5) · upstream 046f444d\n',
+      exitCode: 0,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/^OK\s+hermes-version: 0\.16\.0$/m);
+  });
+
+  it('reports OK hermes-version when the CLI is newer than the minimum', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
+
+    const result = await runDoctorWithVersion(hermesHome, {
+      stdout: 'Hermes Agent v0.17.2 (2026.7.1) · upstream deadbeef\n',
+      exitCode: 0,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/^OK\s+hermes-version: 0\.17\.2$/m);
+  });
+
+  it('fails hermes-version when the CLI parses to a version below the minimum', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
+
+    const result = await runDoctorWithVersion(hermesHome, {
+      stdout: 'Hermes Agent v0.15.9 (2026.4.1) · upstream cafef00d\n',
+      exitCode: 0,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toMatch(/^FAIL\s+hermes-version:/m);
+    expect(result.stdout).toContain('0.15.9');
+    expect(result.stdout).toContain('0.16.0');
+  });
+
+  it('warns (does not fail) on cosmetically unparsable hermes --version output', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
+
+    const result = await runDoctorWithVersion(hermesHome, {
+      stdout: 'Hermes Agent (dev build)\n',
+      exitCode: 0,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/^WARN\s+hermes-version:/m);
+    expect(result.stdout).not.toMatch(/^FAIL\s+hermes-version:/m);
+  });
+
+  it('warns (does not fail) when hermes --version exits non-zero', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
+
+    const result = await runDoctorWithVersion(hermesHome, {
+      stdout: '',
+      stderr: 'unknown flag --version',
+      exitCode: 2,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/^WARN\s+hermes-version:/m);
+    expect(result.stdout).not.toMatch(/^FAIL\s+hermes-version:/m);
+  });
+
+  it('skips the hermes-version check entirely when the hermes binary is not found', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
+    const runner = emptyDoctorRunner();
+
+    const result = await runOpsctl(['doctor'], {
+      config: loadConfig({
+        env: { HERMES_HOME: hermesHome },
+        configPath: null,
+        overrides: { hermesBin: '/nonexistent/hermes-binary' },
+      }),
+      env: { HERMES_HOME: hermesHome, PATH: '' },
+      hermesRunner: runner,
+    });
+
+    expect(result.stdout).toMatch(/^FAIL\s+hermes-cli:/m);
+    expect(result.stdout).not.toMatch(/^(OK|WARN|FAIL)\s+hermes-version:/m);
+    expect(runner).not.toHaveBeenCalledWith(expect.objectContaining({ args: ['--version'] }));
+  });
 });
+
+async function runDoctorWithVersion(
+  hermesHome: string,
+  version: { stdout: string; stderr?: string; exitCode: number },
+) {
+  const runner = vi.fn<HermesRunner>(async (request) => {
+    if (request.args[0] === '--version') {
+      return { stdout: version.stdout, stderr: version.stderr ?? '', exitCode: version.exitCode };
+    }
+    if (request.args[0] === 'kanban') {
+      return { stdout: JSON.stringify([]), stderr: '', exitCode: 0 };
+    }
+    if (request.args[0] === 'send') {
+      return { stdout: JSON.stringify({ platforms: {} }), stderr: '', exitCode: 0 };
+    }
+    if (request.args[0] === 'cron') {
+      return { stdout: '', stderr: '', exitCode: 0 };
+    }
+    throw new Error(`unexpected Hermes args: ${request.args.join(' ')}`);
+  });
+
+  return runOpsctl(['doctor'], {
+    config: loadConfig({
+      env: { HERMES_HOME: hermesHome },
+      configPath: null,
+      overrides: { hermesBin: process.execPath },
+    }),
+    env: { HERMES_HOME: hermesHome, PATH: process.env.PATH },
+    hermesRunner: runner,
+  });
+}
 
 function writeTempJson(value: unknown, fileName = 'card.json'): string {
   const directory = mkdtempSync(join(tmpdir(), 'keryx-opsctl-'));
@@ -575,6 +714,9 @@ function writeHermesPluginConfig(hermesHome: string, plugins: { enabled?: string
 
 function emptyDoctorRunner() {
   return vi.fn<HermesRunner>(async (request) => {
+    if (request.args[0] === '--version') {
+      return { stdout: 'Hermes Agent v0.16.0 (2026.6.5) · upstream 046f444d\n', stderr: '', exitCode: 0 };
+    }
     if (request.args[0] === 'kanban') {
       return { stdout: JSON.stringify([]), stderr: '', exitCode: 0 };
     }

@@ -95,6 +95,13 @@ export class HermesCliAdapter {
     return parseDeliveryTargets(await this.run(args));
   }
 
+  // Returns the raw `hermes --version` stdout. Callers parse the semver with
+  // parseHermesVersion(); the adapter does not interpret the output so that a
+  // cosmetic format change degrades to a WARN rather than a hard failure.
+  async getVersion(): Promise<string> {
+    return this.run(['--version']);
+  }
+
   private async run(args: string[]): Promise<string> {
     assertAllowedHermesArgs(args);
     const request: HermesRunRequest = {
@@ -117,7 +124,7 @@ export class HermesCliAdapter {
 }
 
 export function assertAllowedHermesArgs(args: readonly string[]): void {
-  if (isAllowedKanbanArgs(args) || isAllowedSendArgs(args) || isAllowedCronArgs(args)) {
+  if (isAllowedKanbanArgs(args) || isAllowedSendArgs(args) || isAllowedCronArgs(args) || isAllowedVersionArgs(args)) {
     return;
   }
 
@@ -198,6 +205,22 @@ function isAllowedSendArgs(args: readonly string[]): boolean {
 
 function isAllowedCronArgs(args: readonly string[]): boolean {
   return args.length === 3 && args[0] === 'cron' && args[1] === 'list' && args[2] === '--all';
+}
+
+// The only top-level Hermes command shape Keryx is permitted to run: `hermes --version`.
+// Kept exact so the doctor version check cannot become a generic Hermes passthrough.
+function isAllowedVersionArgs(args: readonly string[]): boolean {
+  return args.length === 1 && args[0] === '--version';
+}
+
+// Defensively extracts a dotted three-part semver (major.minor.patch) from arbitrary
+// `hermes --version` output. Tolerates an optional `v` prefix ("...v0.16.0...") and takes
+// the first such token, so a cosmetic prefix change keeps parsing and an unrelated
+// trailing build/date stamp ("(2026.6.5)") is not mistaken for the version. Returns null
+// when no full semver is present, which the caller surfaces as a WARN, not a failure.
+export function parseHermesVersion(output: string): string | null {
+  const match = output.match(/(?<![\w.])v?(\d+)\.(\d+)\.(\d+)(?![\w.])/);
+  return match ? `${match[1]}.${match[2]}.${match[3]}` : null;
 }
 
 export function parseKanbanTasks(json: string): KanbanTask[] {

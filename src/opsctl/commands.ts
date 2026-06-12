@@ -4,7 +4,7 @@ import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { type KeryxConfig, loadConfig } from '../config';
-import { HermesCliAdapter } from '../hermes/adapter';
+import { HermesCliAdapter, parseHermesVersion } from '../hermes/adapter';
 import type { HermesRunner, KanbanTask } from '../hermes/types';
 import { actionItemSchema, type ActionItem, validateActionItem } from '../schemas/actionItem';
 import { collectorStateSchema, validateCollectorState } from '../schemas/collectorState';
@@ -65,6 +65,12 @@ Mutating commands:
 Global options:
   --help, -h                     Show this help
 `;
+
+// The Keryx plugin surface is written against Hermes 0.16. The doctor enforces this as
+// the minimum supported Hermes CLI version. Kept here as a named code constant (not in
+// the README, which is intentionally version-neutral) so docs and enforcement stay
+// decoupled.
+const MINIMUM_HERMES_VERSION = '0.16.0';
 
 const SCHEMA_COMMANDS = {
   'action-item': {
@@ -446,6 +452,7 @@ async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, options: D
   const hermesCliPath = findExecutable(config.hermesBin, options.env);
   if (hermesCliPath) {
     lines.push({ level: 'OK', check: 'hermes-cli', message: `found ${hermesCliPath}` });
+    lines.push(await checkHermesVersion(adapter));
   } else {
     lines.push({ level: 'FAIL', check: 'hermes-cli', message: `not executable or not on PATH: ${config.hermesBin}` });
   }
@@ -500,6 +507,57 @@ async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, options: D
   }
 
   return { exitCode: lines.some((line) => line.level === 'FAIL') ? 1 : 0, stdout: formatDoctorLines(lines), stderr: '' };
+}
+
+// Verifies the Hermes CLI is at least MINIMUM_HERMES_VERSION. Only invoked once the
+// hermes binary has been located. Degrades gracefully: a non-zero exit or unparsable
+// output yields WARN (cosmetic output changes must not hard-fail the doctor); a parsed
+// version below the minimum is the only FAIL path.
+async function checkHermesVersion(adapter: HermesCliAdapter): Promise<DoctorLine> {
+  let output: string;
+  try {
+    output = await adapter.getVersion();
+  } catch (error) {
+    return {
+      level: 'WARN',
+      check: 'hermes-version',
+      message: `could not determine Hermes version: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  const version = parseHermesVersion(output);
+  if (!version) {
+    const firstLine = output.split(/\r?\n/, 1)[0]?.trim() ?? '';
+    return {
+      level: 'WARN',
+      check: 'hermes-version',
+      message: `could not parse a version from hermes --version output${firstLine ? `: ${firstLine}` : ''}`,
+    };
+  }
+
+  if (compareSemver(version, MINIMUM_HERMES_VERSION) < 0) {
+    return {
+      level: 'FAIL',
+      check: 'hermes-version',
+      message: `Hermes ${version} is older than the required minimum ${MINIMUM_HERMES_VERSION}; run \`hermes update\``,
+    };
+  }
+
+  return { level: 'OK', check: 'hermes-version', message: version };
+}
+
+// Compares two dotted numeric versions. Returns <0, 0, or >0. Both inputs are assumed to
+// be three-part numeric semvers as produced by parseHermesVersion / a literal constant.
+function compareSemver(a: string, b: string): number {
+  const left = a.split('.').map((part) => Number.parseInt(part, 10));
+  const right = b.split('.').map((part) => Number.parseInt(part, 10));
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const diff = (left[index] ?? 0) - (right[index] ?? 0);
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+  return 0;
 }
 
 function resolveHermesHome(config: KeryxConfig, env: Record<string, string | undefined>): string {
