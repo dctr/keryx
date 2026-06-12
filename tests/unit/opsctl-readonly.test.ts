@@ -82,6 +82,17 @@ describe('read-only opsctl commands', () => {
     expect(result.stderr).toContain("must have required property 'title'");
   });
 
+  it('returns non-zero when ui.primary_option_id does not match any option id', async () => {
+    const filePath = writeTempJson({ ...validActionItem, ui: { primary_option_id: 'ghost', display_group: 'Needs approval' } });
+
+    const result = await runOpsctl(['validate-card', filePath], { env: {}, configPath: null });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('FAIL');
+    expect(result.stderr).toContain('/ui/primary_option_id');
+  });
+
   it('validates a valid execution-decision JSON file', async () => {
     const filePath = writeTempJson(validExecutionDecision, 'decision.json');
 

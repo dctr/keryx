@@ -79,6 +79,8 @@ keryx:<source-name>:<immutable-source-id>
 
 Do not include timestamps, titles, summaries, or mutable page text. Retries should hit the same key and avoid duplicate cards.
 
+Validation enforces the `keryx:` prefix plus at least two non-empty colon-separated segments (source and id); a single-segment key such as `keryx:foo` is rejected. The segments themselves stay liberal, so ids that contain colons (for example `keryx:email:support-inbox:INBOX:35680`) remain valid.
+
 ## Cursor safety
 
 The cursor safety rule: the collector advances committed state only after all earlier items have been handled safely. Safe handling includes card creation, an explicit skip with a durable reason, or exact dismissal.

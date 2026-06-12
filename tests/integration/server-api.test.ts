@@ -78,6 +78,30 @@ describe('server API with fake Hermes', () => {
     }
   });
 
+  it('keeps a primary_option_id-mismatch card visible as a malformed-card error', async () => {
+    const mismatched = { ...actionItem, ui: { primary_option_id: 'ghost_option', display_group: 'Needs approval' } };
+    const fakeHermes = createFakeHermes({
+      tasks: [
+        task({ id: 't_good', title: 'Good action', status: 'blocked', body: JSON.stringify(actionItem) }),
+        task({ id: 't_mismatch', title: 'Mismatched primary option', status: 'blocked', body: JSON.stringify(mismatched) }),
+      ],
+    });
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), hermesRunner: fakeHermes.runner });
+
+    try {
+      const response = await server.inject({ method: 'GET', url: '/api/tasks' });
+
+      expect(response.statusCode).toBe(200);
+      const payload = response.json() as { ok: boolean; tasks: Array<{ id: string }>; errors: Array<{ task_id: string; error: string }> };
+      expect(payload.tasks.map((entry) => entry.id)).toEqual(['t_good']);
+      expect(payload.errors).toEqual([
+        expect.objectContaining({ task_id: 't_mismatch', error: expect.stringContaining('/ui/primary_option_id') }),
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('returns keryx source health from Hermes cron status', async () => {
     const runner = vi.fn<HermesRunner>(async (request) => {
       if (request.args.join(' ') === 'cron list --all') {

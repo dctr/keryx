@@ -115,6 +115,69 @@ describe('Keryx schema validation', () => {
     }
   });
 
+  it('accepts the documented keryx:<source>:<id> idempotency key shape', () => {
+    const result = validateActionItem({ ...validActionItem, idempotency_key: 'keryx:email:support-inbox:INBOX:35680' });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects a single-segment idempotency key with a useful path', () => {
+    const result = validateActionItem({ ...validActionItem, idempotency_key: 'keryx:onlyone' });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: '/idempotency_key', keyword: 'pattern' })]),
+      );
+    }
+  });
+
+  it('rejects an idempotency key with an empty trailing segment', () => {
+    const result = validateActionItem({ ...validActionItem, idempotency_key: 'keryx:email:' });
+
+    expect(result.ok).toBe(false);
+  });
+
+  it('cross-validates a present ui.primary_option_id against options[].id', () => {
+    const result = validateActionItem({ ...validActionItem, ui: { primary_option_id: 'does_not_exist' } });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: '/ui/primary_option_id', message: expect.stringContaining('option id') }),
+        ]),
+      );
+    }
+  });
+
+  it('reports a primary_option_id mismatch alongside Ajv errors', () => {
+    const malformed = { ...validActionItem, ui: { primary_option_id: 'does_not_exist' } } as Record<string, unknown>;
+    delete malformed.title;
+
+    const result = validateActionItem(malformed);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const paths = result.errors.map((error) => error.path);
+      expect(paths).toContain('/ui/primary_option_id');
+      expect(result.errors.some((error) => error.message.includes("must have required property 'title'"))).toBe(true);
+    }
+  });
+
+  it('accepts an action item without ui hints', () => {
+    const withoutUi = { ...validActionItem } as Record<string, unknown>;
+    delete withoutUi.ui;
+
+    expect(validateActionItem(withoutUi).ok).toBe(true);
+  });
+
+  it('accepts ui hints that omit primary_option_id', () => {
+    const result = validateActionItem({ ...validActionItem, ui: { display_group: 'Needs approval' } });
+
+    expect(result.ok).toBe(true);
+  });
+
   it('accepts a valid execution decision comment', () => {
     const result = validateExecutionDecision(validExecutionDecision);
 

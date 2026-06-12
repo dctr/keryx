@@ -1,6 +1,6 @@
 import actionItemSchema from '../../schemas/action-item.v1.schema.json';
 
-import { createValidator } from './validate';
+import { type ValidationError, createValidator } from './validate';
 
 export type Autonomy = 'auto' | 'minimal' | 'research' | 'complex';
 export type Urgency = 'low' | 'normal' | 'soon' | 'urgent';
@@ -44,4 +44,44 @@ export interface ActionItem {
 }
 
 export { actionItemSchema };
-export const validateActionItem = createValidator<ActionItem>(actionItemSchema);
+
+// draft-07 cannot express "ui.primary_option_id must be one of options[].id", so the
+// referential check lives here. It runs even when Ajv has already failed, so a present
+// primary_option_id that matches no option id always surfaces as /ui/primary_option_id.
+function crossValidatePrimaryOptionId(value: unknown): ValidationError[] {
+  if (typeof value !== 'object' || value === null) {
+    return [];
+  }
+
+  const ui = (value as { ui?: unknown }).ui;
+  if (typeof ui !== 'object' || ui === null) {
+    return [];
+  }
+
+  const primaryOptionId = (ui as { primary_option_id?: unknown }).primary_option_id;
+  if (typeof primaryOptionId !== 'string') {
+    return [];
+  }
+
+  const options = (value as { options?: unknown }).options;
+  const optionIds = Array.isArray(options)
+    ? options
+        .map((option) => (typeof option === 'object' && option !== null ? (option as { id?: unknown }).id : undefined))
+        .filter((id): id is string => typeof id === 'string')
+    : [];
+
+  if (optionIds.includes(primaryOptionId)) {
+    return [];
+  }
+
+  return [
+    {
+      path: '/ui/primary_option_id',
+      message: 'must reference one of the defined option ids',
+      keyword: 'cross-validation',
+      params: { primaryOptionId, optionIds },
+    },
+  ];
+}
+
+export const validateActionItem = createValidator<ActionItem>(actionItemSchema, [crossValidatePrimaryOptionId]);

@@ -101,6 +101,23 @@ describe('opsctl create-card', () => {
     expect(runner).not.toHaveBeenCalled();
   });
 
+  it('rejects a card whose ui.primary_option_id is not an option id before calling Hermes', async () => {
+    const runner = vi.fn<HermesRunner>();
+    const mismatched = { ...validActionItem, ui: { primary_option_id: 'nonexistent', display_group: 'Needs approval' } };
+    const filePath = writeTempJson(mismatched);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: loadConfig({ env: {}, configPath: null }),
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('FAIL invalid action card');
+    expect(result.stderr).toContain('/ui/primary_option_id');
+    expect(runner).not.toHaveBeenCalled();
+  });
+
   it('requires a JSON file path', async () => {
     const result = await runOpsctl(['create-card'], { env: {}, configPath: null });
 
