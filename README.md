@@ -180,7 +180,7 @@ If the plugin command is unavailable, run the direct fallback from the repositor
 Common results:
 
 - `FAIL dependencies`: run `npm install` from the Keryx project root.
-- `FAIL plugin`: check `$HERMES_HOME/plugins/keryx`, run `hermes plugins list`, then rerun `hermes plugins enable keryx` or `./keryx-setup.sh`.
+- `FAIL plugin`: covers three cases. *Missing files*: install with `./keryx-setup.sh`. *Installed but not enabled* or *explicitly disabled* (in `$HERMES_HOME/config.yaml` under `plugins.enabled`/`plugins.disabled`): run `hermes plugins enable keryx`. Inspect with `hermes plugins list` and check `$HERMES_HOME/plugins/keryx`.
 - `FAIL hermes-cli`: make sure `hermes` is installed and on `PATH`, or set `hermesBin` in `keryx.config.json`.
 - `WARN no Hermes delivery targets available`: expected when no Hermes gateway delivery is configured; configure a target and rerun `hermes keryx delivery-targets` if a worker action needs to deliver outside the local UI.
 - `WARN no keryx-* collector cron jobs configured`: expected before you author and schedule your first collector.

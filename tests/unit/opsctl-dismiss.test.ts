@@ -120,6 +120,20 @@ describe('opsctl dismiss', () => {
     expect(result.stderr).toContain('FAIL invalid action body for t_malformed');
     expect(runner).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects a task id beginning with a dash with exit code 2 before querying Hermes', async () => {
+    const runner = createRunner(task({ id: 't_dismiss', status: 'blocked' }));
+
+    const result = await runOpsctl(['dismiss', '-rf', '--reason', 'No longer relevant'], {
+      config: loadConfig({ env: {}, configPath: null }),
+      hermesRunner: runner,
+      now: () => dismissedAt,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain('FAIL task id must not begin with "-"');
+    expect(runner).not.toHaveBeenCalled();
+  });
 });
 
 function task(overrides: Partial<KanbanTask>): KanbanTask {

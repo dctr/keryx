@@ -147,6 +147,20 @@ describe('opsctl execute', () => {
     expect(result.stderr).toContain('not valid JSON');
     expect(runner).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects a task id beginning with a dash with exit code 2 before querying Hermes', async () => {
+    const runner = createRunner(task({ id: 't_blocked', status: 'blocked' }));
+
+    const result = await runOpsctl(['execute', '-rf', '--option', 'translate_forward_contact_archive'], {
+      config: loadConfig({ env: {}, configPath: null }),
+      hermesRunner: runner,
+      now: () => approvedAt,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain('FAIL task id must not begin with "-"');
+    expect(runner).not.toHaveBeenCalled();
+  });
 });
 
 function task(overrides: Partial<KanbanTask>): KanbanTask {

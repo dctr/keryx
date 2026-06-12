@@ -105,4 +105,48 @@ describe('server route wiring', () => {
       await server.close();
     }
   });
+
+  it('rejects execute requests for ids beginning with a dash before opsctl is called', async () => {
+    const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({ exitCode: 0, stdout: '{}', stderr: '' }));
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), runOpsctl });
+
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/api/tasks/-rf/execute',
+        payload: { option_id: 'approve' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        ok: false,
+        error: { code: 'VALIDATION_ERROR', message: 'task id must not begin with "-"' },
+      });
+      expect(runOpsctl).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects dismiss requests for ids beginning with a dash before opsctl is called', async () => {
+    const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({ exitCode: 0, stdout: '{}', stderr: '' }));
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), runOpsctl });
+
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/api/tasks/%20-rf/dismiss',
+        payload: { reason: 'spoofed option-lookalike id' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        ok: false,
+        error: { code: 'VALIDATION_ERROR', message: 'task id must not begin with "-"' },
+      });
+      expect(runOpsctl).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
 });

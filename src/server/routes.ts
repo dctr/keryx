@@ -115,6 +115,11 @@ export function registerApiRoutes(server: FastifyInstance, options: RegisterApiR
 
   server.post<{ Params: TaskParams }>('/api/tasks/:id/execute', async (request, reply) => {
     noStore(reply);
+    const idCheck = validateTaskId(request.params.id);
+    if (!idCheck.ok) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', idCheck.message);
+    }
+
     const body = requestBodyObject(request.body);
     if (!body.ok) {
       return sendApiError(reply, 400, 'VALIDATION_ERROR', 'request body must be a JSON object');
@@ -141,6 +146,11 @@ export function registerApiRoutes(server: FastifyInstance, options: RegisterApiR
 
   server.post<{ Params: TaskParams }>('/api/tasks/:id/dismiss', async (request, reply) => {
     noStore(reply);
+    const idCheck = validateTaskId(request.params.id);
+    if (!idCheck.ok) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', idCheck.message);
+    }
+
     const body = requestBodyObject(request.body);
     if (!body.ok) {
       return sendApiError(reply, 400, 'VALIDATION_ERROR', 'request body must be a JSON object');
@@ -199,6 +209,15 @@ function requestBodyObject(value: unknown): { ok: true; value: Record<string, un
     return { ok: true, value: {} };
   }
   return isPlainObject(value) ? { ok: true, value } : { ok: false };
+}
+
+// Rejects task ids that begin with "-" (after trimming) so they cannot reach
+// Hermes argv as option-lookalikes. Mirrors the opsctl execute/dismiss guard.
+function validateTaskId(id: string): { ok: true } | { ok: false; message: string } {
+  if (id.trim().startsWith('-')) {
+    return { ok: false, message: 'task id must not begin with "-"' };
+  }
+  return { ok: true };
 }
 
 function optionalString(value: unknown, field: string): { ok: true; value: string | null } | { ok: false; message: string } {

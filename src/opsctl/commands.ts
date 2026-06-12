@@ -288,6 +288,11 @@ async function executeCard(parsed: ParsedArgs, adapter: HermesCliAdapter, now: (
     return fail('FAIL execute requires a task id', 2);
   }
 
+  const idError = validateTaskIdArgument(taskId);
+  if (idError) {
+    return idError;
+  }
+
   const selectedOptionId = stringFlag(parsed, 'option');
   if (!selectedOptionId) {
     return fail('FAIL execute requires --option <option_id>', 2);
@@ -347,6 +352,11 @@ async function dismissCard(parsed: ParsedArgs, adapter: HermesCliAdapter, now: (
   const taskId = parsed.positionals[0];
   if (!taskId) {
     return fail('FAIL dismiss requires a task id', 2);
+  }
+
+  const idError = validateTaskIdArgument(taskId);
+  if (idError) {
+    return idError;
   }
 
   const task = await adapter.showTask(taskId);
@@ -487,7 +497,140 @@ function checkInstalledPlugin(hermesHome: string): DoctorLine {
     return { level: 'FAIL', check: 'plugin', message: `missing ${missing.join(', ')} under ${pluginDir}` };
   }
 
-  return { level: 'OK', check: 'plugin', message: `installed under ${pluginDir}` };
+  const enablement = readPluginEnablement(hermesHome);
+  const enableGuidance = 'run `hermes plugins enable keryx`';
+
+  if (enablement.disabled.includes('keryx')) {
+    return {
+      level: 'FAIL',
+      check: 'plugin',
+      message: `installed but explicitly disabled in ${join(hermesHome, 'config.yaml')}; ${enableGuidance}`,
+    };
+  }
+
+  if (enablement.enabled.includes('keryx')) {
+    return { level: 'OK', check: 'plugin', message: `installed and enabled under ${pluginDir}` };
+  }
+
+  return {
+    level: 'FAIL',
+    check: 'plugin',
+    message: `installed but not enabled in ${join(hermesHome, 'config.yaml')}; ${enableGuidance}`,
+  };
+}
+
+interface PluginEnablement {
+  enabled: string[];
+  disabled: string[];
+}
+
+// Parses $HERMES_HOME/config.yaml for the plugins.enabled / plugins.disabled lists.
+// A narrow YAML-subset reader is preferred over a new Hermes CLI shape (AGENTS.md
+// forbids generic Hermes passthroughs). A missing or unreadable config yields empty
+// lists, which the caller treats as "not enabled".
+function readPluginEnablement(hermesHome: string): PluginEnablement {
+  let text: string;
+  try {
+    text = readFileSync(join(hermesHome, 'config.yaml'), 'utf8');
+  } catch {
+    return { enabled: [], disabled: [] };
+  }
+
+  const pluginsBlock = extractTopLevelBlock(text, 'plugins');
+  if (pluginsBlock.length === 0) {
+    return { enabled: [], disabled: [] };
+  }
+
+  return {
+    enabled: extractStringList(pluginsBlock, 'enabled'),
+    disabled: extractStringList(pluginsBlock, 'disabled'),
+  };
+}
+
+// Returns the indented lines belonging to a top-level (column-0) mapping key.
+function extractTopLevelBlock(text: string, key: string): string[] {
+  const lines = text.split(/\r?\n/);
+  const headerIndex = lines.findIndex((line) => new RegExp(`^${key}:\\s*(#.*)?$`).test(line));
+  if (headerIndex === -1) {
+    return [];
+  }
+
+  const block: string[] = [];
+  for (let index = headerIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim().length === 0) {
+      continue;
+    }
+    if (leadingSpaces(line) === 0) {
+      break;
+    }
+    block.push(line);
+  }
+  return block;
+}
+
+// Extracts a string list for a key within an already-scoped block, handling both
+// flow style (`enabled: [keryx, other]`) and block style (`enabled:` then `- keryx`).
+function extractStringList(block: string[], key: string): string[] {
+  const keyIndex = block.findIndex((line) => new RegExp(`^\\s*${key}:\\s*`).test(line));
+  if (keyIndex === -1) {
+    return [];
+  }
+
+  const keyLine = block[keyIndex];
+  const keyIndent = leadingSpaces(keyLine);
+  const inlineValue = keyLine.replace(new RegExp(`^\\s*${key}:\\s*`), '').trim();
+
+  if (inlineValue.startsWith('[')) {
+    return parseFlowList(inlineValue);
+  }
+  if (inlineValue.length > 0 && !inlineValue.startsWith('#')) {
+    return [unquote(inlineValue)].filter((entry) => entry.length > 0);
+  }
+
+  const items: string[] = [];
+  for (let index = keyIndex + 1; index < block.length; index += 1) {
+    const line = block[index];
+    if (line.trim().length === 0) {
+      continue;
+    }
+    if (leadingSpaces(line) <= keyIndent) {
+      break;
+    }
+    const match = line.match(/^\s*-\s*(.*)$/);
+    if (!match) {
+      break;
+    }
+    const entry = unquote(stripInlineComment(match[1]).trim());
+    if (entry.length > 0) {
+      items.push(entry);
+    }
+  }
+  return items;
+}
+
+function parseFlowList(value: string): string[] {
+  const inner = value.slice(value.indexOf('[') + 1, value.lastIndexOf(']'));
+  return inner
+    .split(',')
+    .map((entry) => unquote(entry.trim()))
+    .filter((entry) => entry.length > 0);
+}
+
+function stripInlineComment(value: string): string {
+  const hashIndex = value.indexOf(' #');
+  return hashIndex === -1 ? value : value.slice(0, hashIndex);
+}
+
+function unquote(value: string): string {
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+
+function leadingSpaces(line: string): number {
+  return line.length - line.trimStart().length;
 }
 
 function findExecutable(bin: string, env: Record<string, string | undefined>): string | undefined {
@@ -645,6 +788,13 @@ function isBooleanFlag(name: string): boolean {
 
 function normaliseTaskStatus(task: KanbanTask): string {
   return typeof task.status === 'string' && task.status.trim().length > 0 ? task.status : 'unknown';
+}
+
+// Rejects task ids that begin with "-" (after trimming) so they cannot reach
+// Hermes argv as option-lookalikes. Mirrors the API route guard. Returns a
+// failing CommandResult (exit 2) when invalid, or undefined when acceptable.
+function validateTaskIdArgument(taskId: string): CommandResult | undefined {
+  return taskId.trim().startsWith('-') ? fail('FAIL task id must not begin with "-"', 2) : undefined;
 }
 
 function firstString(...values: unknown[]): string | undefined {

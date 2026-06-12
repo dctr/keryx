@@ -250,6 +250,7 @@ describe('read-only opsctl commands', () => {
   it('reports available Hermes delivery targets as a diagnostic in doctor checks', async () => {
     const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
     writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
     const runner = vi.fn<HermesRunner>(async (request) => {
       if (request.args[0] === 'kanban') {
         return { stdout: JSON.stringify([]), stderr: '', exitCode: 0 };
@@ -325,9 +326,56 @@ describe('read-only opsctl commands', () => {
     expect(result.stdout).toMatch(/^FAIL\s+plugin:/m);
   });
 
+  it('reports OK plugin when installed and listed in plugins.enabled', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
+
+    const result = await runDoctor(hermesHome);
+
+    expect(result.stdout).toMatch(/^OK\s+plugin: installed and enabled/m);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('fails plugin check when installed but absent from plugins.enabled', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['some-other-plugin'] });
+
+    const result = await runDoctor(hermesHome);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toMatch(/^FAIL\s+plugin: installed but not enabled/m);
+    expect(result.stdout).toContain('hermes plugins enable keryx');
+  });
+
+  it('fails plugin check when explicitly listed in plugins.disabled even if also enabled', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'], disabled: ['keryx'] });
+
+    const result = await runDoctor(hermesHome);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toMatch(/^FAIL\s+plugin: installed but explicitly disabled/m);
+    expect(result.stdout).toContain('hermes plugins enable keryx');
+  });
+
+  it('fails plugin check when the Hermes config.yaml is missing', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+
+    const result = await runDoctor(hermesHome);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toMatch(/^FAIL\s+plugin: installed but not enabled/m);
+    expect(result.stdout).toContain('hermes plugins enable keryx');
+  });
+
   it('checks setup-installed plugin, dependencies, delivery targets, and collector cron status', async () => {
     const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
     writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
     const runner = vi.fn<HermesRunner>(async (request) => {
       if (request.args[0] === 'kanban') {
         return {
@@ -385,6 +433,7 @@ describe('read-only opsctl commands', () => {
     const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
     const outsideCwd = mkdtempSync(join(tmpdir(), 'keryx-doctor-outside-cwd-'));
     writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] });
     const runner = vi.fn<HermesRunner>(async (request) => {
       if (request.args[0] === 'kanban') {
         return { stdout: JSON.stringify([]), stderr: '', exitCode: 0 };
@@ -427,4 +476,40 @@ function writeInstalledKeryxPlugin(hermesHome: string): void {
   mkdirSync(pluginDir, { recursive: true });
   writeFileSync(join(pluginDir, 'plugin.yaml'), 'name: keryx\nversion: "0.2.0"\n', 'utf8');
   writeFileSync(join(pluginDir, '__init__.py'), '# test plugin\n', 'utf8');
+}
+
+function writeHermesPluginConfig(hermesHome: string, plugins: { enabled?: string[]; disabled?: string[] }): void {
+  const sections: string[] = ['plugins:'];
+  sections.push(`  enabled: [${(plugins.enabled ?? []).join(', ')}]`);
+  if (plugins.disabled) {
+    sections.push(`  disabled: [${plugins.disabled.join(', ')}]`);
+  }
+  writeFileSync(join(hermesHome, 'config.yaml'), `${sections.join('\n')}\n`, 'utf8');
+}
+
+function emptyDoctorRunner() {
+  return vi.fn<HermesRunner>(async (request) => {
+    if (request.args[0] === 'kanban') {
+      return { stdout: JSON.stringify([]), stderr: '', exitCode: 0 };
+    }
+    if (request.args[0] === 'send') {
+      return { stdout: JSON.stringify({ platforms: {} }), stderr: '', exitCode: 0 };
+    }
+    if (request.args[0] === 'cron') {
+      return { stdout: '', stderr: '', exitCode: 0 };
+    }
+    throw new Error(`unexpected Hermes args: ${request.args.join(' ')}`);
+  });
+}
+
+async function runDoctor(hermesHome: string) {
+  return runOpsctl(['doctor'], {
+    config: loadConfig({
+      env: { HERMES_HOME: hermesHome },
+      configPath: null,
+      overrides: { hermesBin: process.execPath },
+    }),
+    env: { HERMES_HOME: hermesHome, PATH: process.env.PATH },
+    hermesRunner: emptyDoctorRunner(),
+  });
 }
