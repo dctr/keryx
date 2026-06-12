@@ -71,6 +71,8 @@ expand_tilde() {
 HERMES_HOME_PATH=$(expand_tilde "$(resolve_home)")
 PLUGIN_SOURCE_DIR="$ROOT_DIR/hermes-plugin"
 PLUGIN_TARGET_DIR="$HERMES_HOME_PATH/plugins/keryx"
+BUNDLE_DIR="$HERMES_HOME_PATH/skill-bundles"
+BUNDLE_PATH="$BUNDLE_DIR/keryx-collector-creator.yaml"
 case "$CONFIG_PATH" in
   /*) ;;
   *) CONFIG_PATH="$ROOT_DIR/$CONFIG_PATH" ;;
@@ -194,6 +196,65 @@ enable_plugin() {
   say "OK plugin keryx enabled"
 }
 
+write_expected_collector_creator_bundle() {
+  cat > "$1" <<'YAML'
+name: keryx-collector-creator
+description: Design and author new Keryx collectors.
+skills:
+  - keryx:keryx-collector-creator
+YAML
+}
+
+collector_creator_bundle_matches_expected() {
+  expected_file=$(mktemp)
+  write_expected_collector_creator_bundle "$expected_file"
+  if cmp -s "$BUNDLE_PATH" "$expected_file"; then
+    rm -f "$expected_file"
+    return 0
+  fi
+  rm -f "$expected_file"
+  return 1
+}
+
+install_collector_creator_bundle() {
+  bundle_exists=0
+  if [ -e "$BUNDLE_PATH" ]; then
+    bundle_exists=1
+  fi
+
+  bundle_matches=0
+  if [ "$bundle_exists" -eq 1 ] && collector_creator_bundle_matches_expected; then
+    bundle_matches=1
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    if [ "$bundle_exists" -eq 0 ]; then
+      say "DRY-RUN would install Keryx collector creator bundle at $BUNDLE_PATH"
+    elif [ "$bundle_matches" -eq 1 ]; then
+      say "DRY-RUN would keep existing collector creator bundle: $BUNDLE_PATH"
+    elif [ "$FORCE" -eq 1 ]; then
+      say "DRY-RUN would overwrite existing collector creator bundle: $BUNDLE_PATH"
+    else
+      say "DRY-RUN would keep existing collector creator bundle: $BUNDLE_PATH"
+    fi
+    return 0
+  fi
+
+  if [ "$bundle_exists" -eq 1 ] && [ "$bundle_matches" -eq 1 ]; then
+    say "OK collector creator bundle already installed: $BUNDLE_PATH"
+    return 0
+  fi
+
+  if [ "$bundle_exists" -eq 1 ] && [ "$FORCE" -ne 1 ]; then
+    say "WARN existing collector creator bundle kept; rerun with --force to overwrite"
+    return 0
+  fi
+
+  mkdir -p "$BUNDLE_DIR"
+  write_expected_collector_creator_bundle "$BUNDLE_PATH"
+  say "OK installed collector creator bundle: $BUNDLE_PATH"
+}
+
 write_config() {
   config_exists=0
   if [ -e "$CONFIG_PATH" ]; then
@@ -256,6 +317,7 @@ require_hermes_cli
 create_board
 install_plugin
 enable_plugin
+install_collector_creator_bundle
 write_config
 run_doctor
 say "OK setup complete"
