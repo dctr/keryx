@@ -15,6 +15,8 @@ set -euo pipefail
 # The script intentionally does not call Hermes. A cron job can use this as a
 # pre-run script and pass its compact stdout to an agent using the
 # plugin-qualified keryx:keryx-collector skill.
+#
+# Requires node on the cron scheduler's PATH (the scanner shells out to node).
 
 json_quote() {
   node --input-type=module - "$1" <<'NODE'

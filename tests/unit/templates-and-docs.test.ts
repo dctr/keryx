@@ -54,6 +54,26 @@ const collectorSkillLoadDocs = [
   'collectors/bash-first-template/keryx-example-scan.sh',
 ] as const;
 
+// Docs that walk an author through wiring the bash-first scanner into a Hermes
+// cron job. Hermes only runs cron scripts that live directly under
+// $HERMES_HOME/scripts/ (absolute paths and ../ traversal are rejected at both
+// creation and run time), so these must document copying the adapted scanner
+// there and referencing it by bare filename.
+const cronScriptPlacementDocs = [
+  'collectors/bash-first-template/cron-prompt.md',
+  'docs/collector-authoring.md',
+] as const;
+
+// Live docs/templates where a cron `Script:` example may legitimately appear.
+// docs/archive/** is historical and intentionally excluded.
+const cronScriptExampleDocs = activeDocsAndTemplates;
+
+// Files that must warn the operator the bash-first scanner shells out to node.
+const nodeOnPathDocs = [
+  'collectors/bash-first-template/keryx-example-scan.sh',
+  'collectors/README.md',
+] as const;
+
 const sourceSpecificSkillDocs = [
   'collectors/README.md',
   'collectors/bash-first-template/cron-prompt.md',
@@ -224,6 +244,57 @@ describe('collector templates and support docs', () => {
     expect(scanner).toContain('"wakeAgent": true');
     expect(scanner).not.toContain('hermes kanban');
     expect(JSON.parse(state)).toMatchObject({ schema: 'keryx.collector_state.v1' });
+  });
+
+  it('documents copying the adapted collector script into $HERMES_HOME/scripts and referencing it by bare filename', () => {
+    for (const relativePath of cronScriptPlacementDocs) {
+      const text = readRequiredFile(relativePath);
+
+      expect(
+        text,
+        `${relativePath} should document copying the adapted scanner to $HERMES_HOME/scripts/keryx-collector-<source>.sh`,
+      ).toContain('$HERMES_HOME/scripts/keryx-collector-<source>.sh');
+      expect(
+        text,
+        `${relativePath} should explain Hermes only runs cron scripts under $HERMES_HOME/scripts`,
+      ).toMatch(/\$HERMES_HOME\/scripts/);
+    }
+  });
+
+  it('only uses bare-filename cron Script: examples in live docs (repo-relative paths are rejected by Hermes)', () => {
+    const offenders: string[] = [];
+
+    for (const relativePath of cronScriptExampleDocs) {
+      const text = readRequiredFile(relativePath);
+      text.split('\n').forEach((line, index) => {
+        const match = line.match(/^\s*Script:\s*(\S+)/);
+        if (!match) {
+          return;
+        }
+        const value = match[1];
+        // A valid cron Script: value is a bare filename resolved under
+        // $HERMES_HOME/scripts/. Slashes (repo-relative or absolute paths) and
+        // ../ traversal are refused by Hermes at cron creation and run time.
+        if (value.includes('/') || value.startsWith('..')) {
+          offenders.push(`${relativePath}:${index + 1}: ${line.trim()}`);
+        }
+      });
+    }
+
+    expect(
+      offenders,
+      `cron Script: examples must be bare filenames under $HERMES_HOME/scripts, not repo-relative paths:\n${offenders.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('warns that the bash-first scanner requires node on the cron scheduler PATH', () => {
+    for (const relativePath of nodeOnPathDocs) {
+      const text = readRequiredFile(relativePath);
+
+      expect(text, `${relativePath} should note node must be on the cron scheduler PATH`).toMatch(
+        /node[^\n]*on[^\n]*PATH/i,
+      );
+    }
   });
 
   it('covers architecture, security, operations, and deployment boundaries', () => {

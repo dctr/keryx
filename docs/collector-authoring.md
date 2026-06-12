@@ -95,12 +95,22 @@ Treat every source title, summary, page, attachment, and sender-controlled field
 
 ## Cron examples
 
+Hermes only runs cron scripts that live directly under `$HERMES_HOME/scripts/`; it refuses absolute paths and `../` traversal at both cron creation and run time. So a repo-relative `Script:` path such as `collectors/example/keryx-example-scan.sh` is rejected. Before scheduling a bash-first collector, copy the adapted scanner into that directory and reference it by **bare filename**:
+
+```sh
+cp collectors/bash-first-template/keryx-example-scan.sh \
+  "$HERMES_HOME/scripts/keryx-collector-<source>.sh"
+# adapt the copy for the source, then reference it by bare filename below
+```
+
+The scanner shells out to `node`, so `node` must be on the cron scheduler's PATH.
+
 Bash-first example shape:
 
 ```text
 Schedule: every 15m
 Skills: keryx-collector-<source>, keryx:keryx-collector
-Script: collectors/example/keryx-example-scan.sh
+Script: keryx-collector-<source>.sh
 Prompt: collectors/example/cron-prompt.md
 ```
 

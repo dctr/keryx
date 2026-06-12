@@ -8,6 +8,8 @@ Keryx collectors turn source events into blocked Kanban cards that an operator c
 
 Use `collectors/bash-first-template/` when deterministic polling can cheaply decide whether anything changed. The shell script reads source state, emits `{"wakeAgent": false}` when there is no work, and emits compact candidate JSON when an agent should classify possible actions.
 
+The template scanner shells out to `node`, so `node` must be on the cron scheduler's PATH. Hermes also only runs cron scripts that live directly under `$HERMES_HOME/scripts/`, so copy the adapted scanner to `$HERMES_HOME/scripts/keryx-collector-<source>.sh` and reference it by bare filename in the cron definition (see `docs/collector-authoring.md`).
+
 This pattern is best for APIs, local files, RSS feeds, command-line tools, and any source where cursor comparison is reliable.
 
 ### Direct-agent collector
