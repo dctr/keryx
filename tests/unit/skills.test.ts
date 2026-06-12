@@ -98,6 +98,28 @@ describe('bundled Keryx skills', () => {
     expect(workerText).not.toContain('inspect `keryx-collector-creator`');
   });
 
+  it('validates cards and decisions through the keryx CLI surface, not in-repo TS imports', () => {
+    const workerText = readFileSync(join(categoryRoot, 'keryx-worker', 'SKILL.md'), 'utf8');
+
+    // A Kanban-dispatched worker runs outside the repo's TS runtime, so it must validate via the CLI.
+    expect(workerText).toContain('hermes keryx validate-card');
+    expect(workerText).toContain('hermes keryx validate-decision');
+    expect(workerText).toContain('hermes keryx schema action-item');
+    expect(workerText).toContain('hermes keryx schema execution-decision');
+    expect(workerText).toContain('./bin/opsctl');
+    expect(workerText).toContain('/tmp');
+
+    // The old in-repo TypeScript validators must no longer be referenced.
+    expect(workerText).not.toContain('validateActionItem');
+    expect(workerText).not.toContain('validateExecutionDecision');
+    expect(workerText).not.toContain('src/schemas/actionItem.ts');
+    expect(workerText).not.toContain('src/schemas/executionDecision.ts');
+
+    // The schema const checks remain part of the contract.
+    expect(workerText).toContain('keryx.action_item.v1');
+    expect(workerText).toContain('keryx.execution_decision.v1');
+  });
+
   it('points collectors to canonical hermes keryx card commands instead of embedded templates', () => {
     const collectorText = readFileSync(join(categoryRoot, 'keryx-collector', 'SKILL.md'), 'utf8');
     const bundledSkillText = skillNames.map((skillName) => readFileSync(join(categoryRoot, skillName, 'SKILL.md'), 'utf8')).join('\n');
