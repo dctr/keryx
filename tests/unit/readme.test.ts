@@ -98,6 +98,18 @@ describe('user-facing README', () => {
     }
   });
 
+  it('keeps the generic collector skill qualified while referencing created collector skills unqualified', () => {
+    const readme = readReadme();
+
+    // The repo-shipped generic collector skill stays plugin-qualified.
+    expect(readme).toContain('keryx:keryx-collector');
+    // Created source-specific collector skills live in Hermes' space and are unqualified.
+    expect(readme).toContain('keryx-collector-<source>');
+    expect(readme, 'README should not qualify created collector skills with keryx:').not.toContain(
+      'keryx:keryx-collector-<source>',
+    );
+  });
+
   it('does not document copied skills as the setup source of truth', () => {
     const readme = readReadme();
 

@@ -27,7 +27,7 @@ Stale copied skill files from an older installation may exist, but they are no l
 5. Check whether failures are authentication, source format changes, missing files, or state-write problems.
 6. Keep failed state conservative: do not advance cursors when card creation or classification failed.
 
-Collector cron jobs should load `keryx:keryx-collector` and any source-specific plugin skill such as `keryx:keryx-collector-<source>`.
+Collector cron jobs should load the plugin-qualified generic skill `keryx:keryx-collector` and any created source-specific skill by its unqualified name `keryx-collector-<source>` (those live in Hermes' space, not the Keryx plugin, so they carry no `keryx:` prefix).
 
 ## Troubleshooting Kanban dispatch
 

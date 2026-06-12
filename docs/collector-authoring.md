@@ -18,7 +18,7 @@ Prefer bash-first where practical. It is cheaper, easier to test, and easier to 
 
 Every actionable item becomes a blocked Kanban card whose body validates as `keryx.action_item.v1`. The collector should create the card with `initial-status blocked`, attach the plugin-qualified `keryx:keryx-worker` skill, and use an idempotency key that is stable across retries.
 
-Plugin-registered skills are explicit qualified loads. Use `keryx:keryx-worker` for worker cards. Use `keryx:keryx-collector` for generic collector cron jobs, plus a source-specific `keryx:keryx-collector-<source>` skill when that source skill is shipped by the plugin.
+Plugin-registered skills are explicit qualified loads. Use `keryx:keryx-worker` for worker cards. Use `keryx:keryx-collector` for generic collector cron jobs. A created source-specific skill is referenced **unqualified** as `keryx-collector-<source>`: those skills are authored into Hermes' space (`$HERMES_HOME/skills/keryx-collector-<source>/SKILL.md`), not the Keryx plugin's static skill list, so they carry no `keryx:` prefix.
 
 Allowed `autonomy` values are `auto`, `minimal`, `research`, and `complex`.
 
@@ -99,7 +99,7 @@ Bash-first example shape:
 
 ```text
 Schedule: every 15m
-Skills: keryx:keryx-collector-<source>, keryx:keryx-collector
+Skills: keryx-collector-<source>, keryx:keryx-collector
 Script: collectors/example/keryx-example-scan.sh
 Prompt: collectors/example/cron-prompt.md
 ```
@@ -108,15 +108,17 @@ Direct-agent example shape:
 
 ```text
 Schedule: every 30m
-Skills: keryx:keryx-collector-<source>, keryx:keryx-collector
+Skills: keryx-collector-<source>, keryx:keryx-collector
 Prompt: collectors/direct-agent-template/cron-prompt.md adapted for the source
 ```
+
+The created source-specific skill `keryx-collector-<source>` is unqualified (it lives in Hermes' space at `$HERMES_HOME/skills/keryx-collector-<source>/SKILL.md`); only the repo-shipped generic skill keeps its `keryx:` prefix.
 
 Equivalent cron skill JSON:
 
 ```json
 {
-  "skills": ["keryx:keryx-collector-<source>", "keryx:keryx-collector"]
+  "skills": ["keryx-collector-<source>", "keryx:keryx-collector"]
 }
 ```
 

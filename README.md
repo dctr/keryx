@@ -149,7 +149,7 @@ hermes keryx create-card /tmp/keryx-card.json
 rm -f /tmp/keryx-card.json
 ```
 
-Dry-run against fixtures before scheduling a collector. The shipped templates do not create cron jobs automatically. Once a collector is correct, create a Hermes cron job manually, for example with `hermes cron create "every 15m"`, and load collector skills with plugin-qualified names such as `keryx:keryx-collector` and source-specific `keryx:keryx-collector-<source>` when provided.
+Dry-run against fixtures before scheduling a collector. The shipped templates do not create cron jobs automatically. Once a collector is correct, create a Hermes cron job manually, for example with `hermes cron create "every 15m"`, and load the generic collector skill with its plugin-qualified name `keryx:keryx-collector`, plus any created source-specific skill by its unqualified name `keryx-collector-<source>` (those live in Hermes' space, not the Keryx plugin, so they carry no `keryx:` prefix).
 
 ## Reverse proxy and remote access
 

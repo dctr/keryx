@@ -1,6 +1,6 @@
 # Direct-agent collector cron prompt
 
-Use this prompt when deterministic scanning is not enough and the agent must inspect the source directly. The cron job should load plugin-qualified collector skills such as `keryx:keryx-collector-<source>` and `keryx:keryx-collector` before running this prompt.
+Use this prompt when deterministic scanning is not enough and the agent must inspect the source directly. The cron job should load the created source-specific skill by its unqualified name `keryx-collector-<source>` (it lives in Hermes' space, not the Keryx plugin) and the plugin-qualified generic skill `keryx:keryx-collector` before running this prompt.
 
 ## Mission
 

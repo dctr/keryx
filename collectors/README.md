@@ -46,11 +46,11 @@ rm -f /tmp/keryx-card.json
 
 ## Cron skills
 
-Use plugin-qualified collector skills in cron jobs. Source-specific Keryx collector skills, when shipped by the plugin, should be loaded before the generic collector guidance:
+Use the plugin-qualified generic collector skill `keryx:keryx-collector` in cron jobs. Created source-specific collector skills live in Hermes' space (`$HERMES_HOME/skills/keryx-collector-<source>/SKILL.md`), not in the Keryx plugin, so they are referenced **unqualified** and loaded before the generic guidance:
 
 ```json
 {
-  "skills": ["keryx:keryx-collector-<source>", "keryx:keryx-collector"]
+  "skills": ["keryx-collector-<source>", "keryx:keryx-collector"]
 }
 ```
 

@@ -61,16 +61,17 @@ describe('bundled Keryx skills', () => {
     const workerSkillText = readFileSync(join(categoryRoot, 'keryx-worker', 'SKILL.md'), 'utf8');
 
     expect(workerSkillText).toContain('generic or can be generalised');
-    expect(workerSkillText).toContain('keryx-collector-$SOURCE');
+    expect(workerSkillText).toContain('`keryx-collector-$SOURCE`');
     expect(workerSkillText).toContain('keryx:automation-suggestion:<source>:<stable-slug>');
   });
 
-  it('uses plugin-qualified Keryx skill names for card and cron attachments', () => {
+  it('qualifies the three shipped plugin skills and leaves created collector skills unqualified', () => {
     const descriptionText = readFileSync(join(categoryRoot, 'DESCRIPTION.md'), 'utf8');
     const collectorText = readFileSync(join(categoryRoot, 'keryx-collector', 'SKILL.md'), 'utf8');
     const collectorCreatorText = readFileSync(join(categoryRoot, 'keryx-collector-creator', 'SKILL.md'), 'utf8');
     const workerText = readFileSync(join(categoryRoot, 'keryx-worker', 'SKILL.md'), 'utf8');
 
+    // The three repo-shipped plugin skills always keep the `keryx:` prefix.
     expect(descriptionText).toContain('`keryx:keryx-worker`');
     expect(descriptionText).toContain('`keryx:keryx-collector`');
     expect(descriptionText).toContain('`keryx:keryx-collector-creator`');
@@ -81,13 +82,19 @@ describe('bundled Keryx skills', () => {
       expect(skillText).not.toContain('Attach `keryx-worker`');
     }
 
-    expect(collectorCreatorText).not.toContain('then `keryx-collector`');
-    expect(collectorCreatorText).not.toContain('Attach skills in this order: `keryx-collector-$NAME`, then `keryx-collector`');
-    expect(collectorCreatorText).toContain('`keryx:keryx-collector-$NAME`');
+    // Created source-specific skills live in Hermes' space and are referenced UNQUALIFIED.
+    // Only the generic, repo-shipped collector skill keeps the `keryx:` prefix.
+    expect(collectorCreatorText).toContain('$HERMES_HOME/skills/keryx-collector-$NAME/SKILL.md');
+    expect(collectorCreatorText).toContain('`keryx-collector-$NAME`');
+    expect(collectorCreatorText).not.toContain('`keryx:keryx-collector-$NAME`');
     expect(collectorCreatorText).toContain('`keryx:keryx-collector`');
+    // Cron attachment order: created (unqualified) first, then the qualified generic skill.
+    expect(collectorCreatorText).toContain('then `keryx:keryx-collector`');
 
+    // The creator skill itself stays qualified when self-referenced; created skills do not.
     expect(workerText).toContain('`keryx:keryx-collector-creator`');
-    expect(workerText).toContain('`keryx:keryx-collector-$SOURCE`');
+    expect(workerText).toContain('`keryx-collector-$SOURCE`');
+    expect(workerText).not.toContain('`keryx:keryx-collector-$SOURCE`');
     expect(workerText).not.toContain('inspect `keryx-collector-creator`');
   });
 

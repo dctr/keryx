@@ -1,6 +1,6 @@
 ---
 name: keryx-collector-creator
-description: Design and author new Keryx collectors. Use when creating or modifying collector scripts/prompts/templates so they choose the right programmatic or agentic pattern, define cursor safety, create blocked keryx.action_item.v1 cards, and schedule safe Hermes cron jobs with plugin-qualified Keryx skills.
+description: Design and author new Keryx collectors. Use when creating or modifying collector scripts/prompts/templates so they choose the right programmatic or agentic pattern, define cursor safety, create blocked keryx.action_item.v1 cards, write the created source skill into Hermes' space, and schedule safe Hermes cron jobs that load the unqualified created skill alongside the plugin-qualified keryx:keryx-collector.
 ---
 
 # Keryx collector creator
@@ -32,14 +32,14 @@ Use this path when bash can gather new candidates by invoking CLI tools, HTTP AP
 Use this path when the scheduled agent must gather source data directly.
 
 - Put cadence, delivery, and toolset choices in the cron definition. The runtime source skill should focus on discovery and item-handling rules.
-- Create a source-specific skill named `keryx-collector-$NAME`; when it is shipped in this Keryx repository/plugin, reference it as `keryx:keryx-collector-$NAME` in cron examples.
+- Create a source-specific skill named `keryx-collector-$NAME` in **Hermes' space** at `$HERMES_HOME/skills/keryx-collector-$NAME/SKILL.md` (default `~/.hermes/skills/...`). Never generate this skill into the Keryx repository: the plugin registers a fixed, static skill list, so a skill dropped into the repo would never resolve. Because the created skill lives in Hermes' own skill index, reference it **unqualified** as `keryx-collector-$NAME` in cron examples — the `keryx:` prefix is reserved for the three repo-shipped plugin skills (`keryx:keryx-worker`, `keryx:keryx-collector`, `keryx:keryx-collector-creator`).
 - Put source-specific discovery instructions, access paths, cursor location, exact-dismiss rules, examples, and blockers in that skill. Cron runs in a fresh session, so the prompt/skill must be self-contained.
 - Do not duplicate generic card, trust, cursor, or Keryx rules from `keryx:keryx-collector`; attach `keryx:keryx-collector` at cron execution time instead.
 - Make no-work runs cheap in words, but remember agentic collectors invoke the agent on every tick.
 
 ## 3. Write the item-handling skill
 
-Create or update `keryx-collector-$NAME` for the logic that turns newly discovered items into Keryx cards.
+Create or update the Hermes-space skill `keryx-collector-$NAME` (at `$HERMES_HOME/skills/keryx-collector-$NAME/SKILL.md`) for the logic that turns newly discovered items into Keryx cards.
 
 - If step 2 used a programmatic script, this skill consumes the script output.
 - If step 2 used an agentic collector, append the handling steps to the same skill after discovery.
@@ -63,7 +63,7 @@ Do not create a real cron job until the collector has passed a dry run and the u
 4. Create the cron job named `keryx-collector-$NAME`.
 5. For programmatic collectors, create a normal agent cron job with `script="keryx-collector-$NAME.sh"` and `no_agent` omitted/false. The script decides whether to wake the agent with `wakeAgent`.
 6. For agentic collectors, create a normal skill-backed cron job without a pre-check script unless a cheap gate is also available.
-7. Attach skills in this order for Keryx-shipped collectors: `keryx:keryx-collector-$NAME`, then `keryx:keryx-collector`.
+7. Attach skills in this order: the created Hermes-space skill `keryx-collector-$NAME` (unqualified, since it lives in Hermes' skill space), then `keryx:keryx-collector` (the repo-shipped plugin skill, which keeps its qualified name).
 8. Prefer local/silent delivery unless the user explicitly wants notifications; the durable artefact is the blocked Keryx card.
 9. Restrict `enabled_toolsets` to only what the collector needs.
 

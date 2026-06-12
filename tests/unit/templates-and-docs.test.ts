@@ -54,6 +54,14 @@ const collectorSkillLoadDocs = [
   'collectors/bash-first-template/keryx-example-scan.sh',
 ] as const;
 
+const sourceSpecificSkillDocs = [
+  'collectors/README.md',
+  'collectors/bash-first-template/cron-prompt.md',
+  'collectors/direct-agent-template/cron-prompt.md',
+  'docs/collector-authoring.md',
+  'docs/operations.md',
+] as const;
+
 const workerAttachmentDocs = [
   'README.md',
   'AGENTS.md',
@@ -115,10 +123,26 @@ describe('collector templates and support docs', () => {
       const text = readRequiredFile(relativePath);
 
       expect(text, `${relativePath} should mention the plugin-qualified collector skill`).toContain('keryx:keryx-collector');
-      expect(text, `${relativePath} should not document a bare collector skill load`).not.toContain('Skills: keryx-collector');
-      expect(text, `${relativePath} should not document a bare collector skill load`).not.toContain('loads the `keryx-collector` skill');
-      expect(text, `${relativePath} should not document a bare collector skill load`).not.toContain('Load the `keryx-collector` skill');
-      expect(text, `${relativePath} should not document a bare collector skill load`).not.toContain('using the keryx-collector skill');
+      // The generic collector skill must stay plugin-qualified. Created/source-specific
+      // skills are intentionally UNQUALIFIED (keryx-collector-<source>), so forbid only a
+      // bare *generic* reference: keryx-collector not prefixed by `keryx:` and not part of
+      // a longer keryx-collector-<...> name.
+      expect(text, `${relativePath} should not document a bare generic collector skill load`).not.toMatch(
+        /(?<![:\w-])keryx-collector(?![\w-])/,
+      );
+    }
+  });
+
+  it('references created source-specific collector skills by unqualified name', () => {
+    for (const relativePath of sourceSpecificSkillDocs) {
+      const text = readRequiredFile(relativePath);
+
+      expect(text, `${relativePath} should reference the created collector skill unqualified`).toContain(
+        'keryx-collector-<source>',
+      );
+      expect(text, `${relativePath} should not qualify a created collector skill with keryx:`).not.toContain(
+        'keryx:keryx-collector-<source>',
+      );
     }
   });
 
