@@ -594,11 +594,16 @@ function extractStringList(block: string[], key: string): string[] {
     if (line.trim().length === 0) {
       continue;
     }
-    if (leadingSpaces(line) <= keyIndent) {
-      break;
-    }
     const match = line.match(/^\s*-\s*(.*)$/);
     if (!match) {
+      // A non-list line that is indented deeper than the key cannot belong to a
+      // YAML block sequence; anything at or below the key's indent is a sibling.
+      break;
+    }
+    // Block sequence items may sit at the same indentation as their parent key
+    // (Hermes' own serialiser does this) or be indented further. Only a dash
+    // line shallower than the key escapes the current mapping.
+    if (leadingSpaces(line) < keyIndent) {
       break;
     }
     const entry = unquote(stripInlineComment(match[1]).trim());

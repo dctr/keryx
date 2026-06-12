@@ -337,6 +337,38 @@ describe('read-only opsctl commands', () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it('reports OK plugin when enabled via a same-indent block list (Hermes serialiser format)', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    // Mirrors how Hermes' own config.yaml serialises lists: block items sit at
+    // the SAME indentation as their parent key, followed by another top-level key.
+    writeFileSync(
+      join(hermesHome, 'config.yaml'),
+      'plugins:\n  enabled:\n  - keryx\nknown_plugin_toolsets:\n  cli:\n  - spotify\n',
+      'utf8',
+    );
+
+    const result = await runDoctor(hermesHome);
+
+    expect(result.stdout).toMatch(/^OK\s+plugin: installed and enabled/m);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('fails plugin check via a same-indent block disabled list (Hermes serialiser format)', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeFileSync(
+      join(hermesHome, 'config.yaml'),
+      'plugins:\n  enabled:\n  - keryx\n  disabled:\n  - keryx\n',
+      'utf8',
+    );
+
+    const result = await runDoctor(hermesHome);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toMatch(/^FAIL\s+plugin: installed but explicitly disabled/m);
+  });
+
   it('fails plugin check when installed but absent from plugins.enabled', async () => {
     const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
     writeInstalledKeryxPlugin(hermesHome);
