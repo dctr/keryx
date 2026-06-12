@@ -23,7 +23,7 @@ Plugin skills are explicit qualified loads and intentionally hidden from `/skill
 ## Troubleshooting cron jobs
 
 1. List scheduled jobs and find the collector by name.
-2. Confirm the schedule, prompt, plugin-qualified skills, script path, and working directory.
+2. Confirm the schedule, prompt, source-specific skill, plugin-qualified generic skill, script path, and working directory.
 3. Run the script manually against a fixture or safe source.
 4. Confirm the no-work path prints `{"wakeAgent": false}`.
 5. Check whether failures are authentication, source format changes, missing files, or state-write problems.
