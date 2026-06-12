@@ -8,7 +8,7 @@ import { HermesCliAdapter } from '../hermes/adapter';
 import type { HermesRunner, KanbanTask } from '../hermes/types';
 import { actionItemSchema, type ActionItem, validateActionItem } from '../schemas/actionItem';
 import { collectorStateSchema, validateCollectorState } from '../schemas/collectorState';
-import { executionDecisionSchema } from '../schemas/executionDecision';
+import { executionDecisionSchema, validateExecutionDecision } from '../schemas/executionDecision';
 import {
   type CommandResult,
   type CronJobSummary,
@@ -52,6 +52,7 @@ Read-only commands:
   template-card [--source <source>] [--collector <collector>]
                                   Print a schema-valid action-item template
   validate-card <file>           Validate an action-item JSON card body
+  validate-decision <file>       Validate an execution-decision JSON comment body
   validate-state <file>          Validate a collector-state JSON file
 
 Mutating commands:
@@ -103,6 +104,8 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
         return templateCard(parsed, options.now ?? (() => new Date()));
       case 'validate-card':
         return validateCard(parsed.positionals[0]);
+      case 'validate-decision':
+        return validateDecision(parsed.positionals[0]);
       case 'validate-state':
         return validateState(parsed.positionals[0]);
       case 'create-card':
@@ -219,6 +222,20 @@ function validateCard(filePath: string | undefined): CommandResult {
   }
 
   return ok(`OK valid action card: ${validation.value.title}`);
+}
+
+function validateDecision(filePath: string | undefined): CommandResult {
+  if (!filePath) {
+    return fail('FAIL validate-decision requires a JSON file path', 2);
+  }
+
+  const parsed = parseJsonFile(filePath);
+  const validation = validateExecutionDecision(parsed);
+  if (!validation.ok) {
+    return fail(`FAIL invalid execution decision: ${filePath}\n${formatValidationErrors(validation.errors)}`);
+  }
+
+  return ok(`OK valid execution decision: ${validation.value.selected_option_id}`);
 }
 
 function validateState(filePath: string | undefined): CommandResult {

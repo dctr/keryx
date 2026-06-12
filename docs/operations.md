@@ -57,12 +57,13 @@ For stuck cards:
 
 1. Read the card body and latest comments.
 2. Validate the body with `hermes keryx validate-card <card.json>` or the direct fallback `./bin/opsctl validate-card <card.json>`.
-3. If fields or allowed values are unclear, inspect the canonical schema with `hermes keryx schema action-item`.
-4. If a new card must be repaired from source facts, start from `hermes keryx template-card --source <source> --collector <collector>`, validate with `hermes keryx validate-card`, and create it through `hermes keryx create-card`.
-5. If the card is `blocked`, check whether it needs operator input or a trusted execution decision.
-6. If the card is `ready` but not running, inspect dispatch health.
-7. If the card is `running` with an old claim, inspect the worker run and let Kanban reclaim or manually unblock only after confirming no live worker remains.
-8. If the source item no longer exists, dismiss the exact card rather than changing broad collector rules.
+3. If the card carries an execution decision comment, validate it with `hermes keryx validate-decision <decision.json>` (or `./bin/opsctl validate-decision <decision.json>`); workers act only on a trusted `keryx.execution_decision.v1` comment.
+4. If fields or allowed values are unclear, inspect the canonical schema with `hermes keryx schema action-item`.
+5. If a new card must be repaired from source facts, start from `hermes keryx template-card --source <source> --collector <collector>`, validate with `hermes keryx validate-card`, and create it through `hermes keryx create-card`.
+6. If the card is `blocked`, check whether it needs operator input or a trusted execution decision.
+7. If the card is `ready` but not running, inspect dispatch health.
+8. If the card is `running` with an old claim, inspect the worker run and let Kanban reclaim or manually unblock only after confirming no live worker remains.
+9. If the source item no longer exists, dismiss the exact card rather than changing broad collector rules.
 
 ## Deployment checks
 

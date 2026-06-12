@@ -38,6 +38,15 @@ const validActionItem: ActionItem = {
   created_at: '2026-05-31T00:00:00+10:00',
 };
 
+const validExecutionDecision = {
+  schema: 'keryx.execution_decision.v1',
+  selected_option_id: 'translate_forward_contact_archive',
+  user_feedback: null,
+  approved_by: 'User',
+  approved_via: 'keryx-web',
+  approved_at: '2026-05-31T00:00:00+10:00',
+};
+
 describe('read-only opsctl commands', () => {
   it('lists schema, template, and collector-state validation commands in help', async () => {
     const result = await runOpsctl(['--help'], { env: {}, configPath: null });
@@ -46,6 +55,7 @@ describe('read-only opsctl commands', () => {
     expect(result.stdout).toContain('schema <action-item|execution-decision|collector-state>');
     expect(result.stdout).toContain('template-card [--source <source>] [--collector <collector>]');
     expect(result.stdout).toContain('validate-state <file>');
+    expect(result.stdout).toContain('validate-decision <file>');
   });
 
   it('validates a valid action-item JSON file', async () => {
@@ -70,6 +80,50 @@ describe('read-only opsctl commands', () => {
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('FAIL');
     expect(result.stderr).toContain("must have required property 'title'");
+  });
+
+  it('validates a valid execution-decision JSON file', async () => {
+    const filePath = writeTempJson(validExecutionDecision, 'decision.json');
+
+    const result = await runOpsctl(['validate-decision', filePath], { env: {}, configPath: null });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe('OK valid execution decision: translate_forward_contact_archive\n');
+  });
+
+  it('returns non-zero with validation messages for an invalid execution-decision JSON file', async () => {
+    const malformed = { ...validExecutionDecision } as Record<string, unknown>;
+    delete malformed.selected_option_id;
+    const filePath = writeTempJson(malformed, 'decision.json');
+
+    const result = await runOpsctl(['validate-decision', filePath], { env: {}, configPath: null });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain(`FAIL invalid execution decision: ${filePath}`);
+    expect(result.stderr).toContain("must have required property 'selected_option_id'");
+  });
+
+  it('exits 2 when validate-decision is called without a file path', async () => {
+    const result = await runOpsctl(['validate-decision'], { env: {}, configPath: null });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('FAIL validate-decision requires a JSON file path');
+  });
+
+  it('fails validate-decision with a clear message for unparsable JSON', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'keryx-opsctl-'));
+    const filePath = join(directory, 'decision.json');
+    writeFileSync(filePath, '{ not valid json', 'utf8');
+
+    const result = await runOpsctl(['validate-decision', filePath], { env: {}, configPath: null });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('FAIL');
+    expect(result.stderr).toContain(`invalid JSON file ${filePath}`);
   });
 
   it('prints canonical repository schemas exactly', async () => {

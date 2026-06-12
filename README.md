@@ -93,6 +93,7 @@ hermes keryx delivery-targets
 hermes keryx schema action-item
 hermes keryx template-card --source <source> --collector <collector>
 hermes keryx validate-card <card.json>
+hermes keryx validate-decision <decision.json>
 hermes keryx create-card <card.json>
 ```
 
@@ -105,6 +106,7 @@ hermes keryx create-card <card.json>
 ./bin/opsctl cron-status
 ./bin/opsctl delivery-targets
 ./bin/opsctl validate-card <card.json>
+./bin/opsctl validate-decision <decision.json>
 ```
 
 Mutation commands are normally driven by the web UI, but are available for recovery:
