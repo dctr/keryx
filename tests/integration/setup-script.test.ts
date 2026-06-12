@@ -22,6 +22,11 @@ const setupScript = resolve('keryx-setup.sh');
 const sourcePluginDir = resolve('hermes-plugin');
 const sourcePluginYaml = resolve('hermes-plugin/plugin.yaml');
 const sourcePluginInit = resolve('hermes-plugin/__init__.py');
+const expectedCollectorCreatorBundle = `name: keryx-collector-creator
+description: Design and author new Keryx collectors.
+skills:
+  - keryx:keryx-collector-creator
+`;
 
 interface Harness {
   hermesHome: string;
@@ -42,11 +47,13 @@ describe('keryx setup script', () => {
     expect(stdout).toContain('would create Kanban board keryx');
     expect(stdout).toContain('would install Keryx Hermes plugin');
     expect(stdout).toContain('would enable Hermes plugin keryx');
+    expect(stdout).toContain('would install Keryx collector creator bundle');
     expect(stdout).toContain('would write Keryx config');
     expect(stdout).toContain('would run hermes keryx doctor');
     expect(stdout).not.toContain('would install bundled Keryx skills');
     expect(existsSync(join(harness.hermesHome, 'plugins', 'keryx'))).toBe(false);
     expect(existsSync(join(harness.hermesHome, 'skills', 'keryx'))).toBe(false);
+    expect(existsSync(collectorCreatorBundlePath(harness))).toBe(false);
     expect(existsSync(harness.configPath)).toBe(false);
     expect(readLog(harness)).toBe('');
   });
@@ -63,6 +70,10 @@ describe('keryx setup script', () => {
     expect(readFileSync(join(pluginDir, '__init__.py'), 'utf8')).toBe(readFileSync(sourcePluginInit, 'utf8'));
     expect(lstatSync(pluginDir).isSymbolicLink() || existsSync(join(pluginDir, 'keryx-root.txt'))).toBe(true);
     expect(existsSync(join(harness.hermesHome, 'skills', 'keryx'))).toBe(false);
+    expect(readFileSync(collectorCreatorBundlePath(harness), 'utf8')).toBe(expectedCollectorCreatorBundle);
+    expect(existsSync(join(harness.hermesHome, 'skills', 'keryx', 'keryx-worker', 'SKILL.md'))).toBe(false);
+    expect(existsSync(join(harness.hermesHome, 'skills', 'keryx', 'keryx-collector', 'SKILL.md'))).toBe(false);
+    expect(existsSync(join(harness.hermesHome, 'skills', 'keryx', 'keryx-collector-creator', 'SKILL.md'))).toBe(false);
 
     const config = JSON.parse(readFileSync(harness.configPath, 'utf8')) as Record<string, unknown>;
     expect(config).toEqual({
@@ -80,6 +91,80 @@ describe('keryx setup script', () => {
     expect(calls).toContain(`${harness.hermesHome}|keryx doctor`);
     expect(calls).not.toContain('send --list --json');
     expect(calls).not.toMatch(/\bcron\s+create\b|\bcronjob\s+create\b|\bcreate\s+cron\b/i);
+  });
+
+  it('keeps an existing matching collector creator bundle idempotently', async () => {
+    const harness = createHarness();
+    const bundlePath = collectorCreatorBundlePath(harness);
+    mkdirSync(join(harness.hermesHome, 'skill-bundles'), { recursive: true });
+    writeFileSync(bundlePath, expectedCollectorCreatorBundle, 'utf8');
+
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('OK collector creator bundle already installed');
+    expect(readFileSync(bundlePath, 'utf8')).toBe(expectedCollectorCreatorBundle);
+    expect(existsSync(join(harness.hermesHome, 'skills', 'keryx'))).toBe(false);
+  });
+
+  it('preserves a conflicting collector creator bundle without --force', async () => {
+    const harness = createHarness();
+    const bundlePath = collectorCreatorBundlePath(harness);
+    const customBundle = `name: custom-collector-creator
+description: User-managed bundle.
+skills:
+  - custom:skill
+`;
+    mkdirSync(join(harness.hermesHome, 'skill-bundles'), { recursive: true });
+    writeFileSync(bundlePath, customBundle, 'utf8');
+
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('WARN existing collector creator bundle kept; rerun with --force to overwrite');
+    expect(readFileSync(bundlePath, 'utf8')).toBe(customBundle);
+  });
+
+  it('overwrites a conflicting collector creator bundle with --force', async () => {
+    const harness = createHarness();
+    const bundlePath = collectorCreatorBundlePath(harness);
+    mkdirSync(join(harness.hermesHome, 'skill-bundles'), { recursive: true });
+    writeFileSync(bundlePath, 'name: custom\nskills:\n  - custom:skill\n', 'utf8');
+
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome, '--force'], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('OK installed collector creator bundle');
+    expect(readFileSync(bundlePath, 'utf8')).toBe(expectedCollectorCreatorBundle);
+  });
+
+  it('reports it would keep a conflicting collector creator bundle in dry-run without --force', async () => {
+    const harness = createHarness();
+    const bundlePath = collectorCreatorBundlePath(harness);
+    const customBundle = 'name: custom\nskills:\n  - custom:skill\n';
+    mkdirSync(join(harness.hermesHome, 'skill-bundles'), { recursive: true });
+    writeFileSync(bundlePath, customBundle, 'utf8');
+
+    const { stdout, stderr } = await runSetup(['--dry-run', '--hermes-home', harness.hermesHome], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('DRY-RUN would keep existing collector creator bundle');
+    expect(stdout).not.toContain('DRY-RUN would overwrite existing collector creator bundle');
+    expect(readFileSync(bundlePath, 'utf8')).toBe(customBundle);
+  });
+
+  it('reports it would overwrite a conflicting collector creator bundle in dry-run with --force', async () => {
+    const harness = createHarness();
+    const bundlePath = collectorCreatorBundlePath(harness);
+    const customBundle = 'name: custom\nskills:\n  - custom:skill\n';
+    mkdirSync(join(harness.hermesHome, 'skill-bundles'), { recursive: true });
+    writeFileSync(bundlePath, customBundle, 'utf8');
+
+    const { stdout, stderr } = await runSetup(['--dry-run', '--hermes-home', harness.hermesHome, '--force'], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('DRY-RUN would overwrite existing collector creator bundle');
+    expect(readFileSync(bundlePath, 'utf8')).toBe(customBundle);
   });
 
   it('rejects the removed delivery-target and local-only flags', async () => {
@@ -304,6 +389,10 @@ async function runSetupFailure(
 
 function installedPluginDir(harness: Harness): string {
   return join(harness.hermesHome, 'plugins', 'keryx');
+}
+
+function collectorCreatorBundlePath(harness: Harness): string {
+  return join(harness.hermesHome, 'skill-bundles', 'keryx-collector-creator.yaml');
 }
 
 function createHarness(): Harness {
