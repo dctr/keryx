@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -256,6 +256,91 @@ describe('collector templates and support docs', () => {
     expect(caddy).toContain('basicauth');
     expect(caddy).toContain('Do not expose Keryx without external authentication');
   });
+});
+
+describe('created collector skills target Hermes space, not the repo', () => {
+  // Files in scope for the grep-style convention checks: the live skill, collector, and
+  // docs trees, plus README.md. docs/archive/** is historical PRD/PLAN written before this
+  // convention existed and is intentionally excluded (see parent task t_7269c104 caveats).
+  const conventionScanDirs = ['skills', 'collectors', 'docs'] as const;
+  const conventionScanFiles = ['README.md'] as const;
+  const excludedDir = join(repoRoot, 'docs', 'archive');
+
+  // A created, source-specific collector skill lives in Hermes' own skill index and is
+  // therefore referenced UNQUALIFIED (keryx-collector-<source>). Only the three repo-shipped
+  // plugin skills carry the `keryx:` prefix: keryx:keryx-worker, keryx:keryx-collector, and
+  // keryx:keryx-collector-creator. So any `keryx:keryx-collector-<suffix>` other than the
+  // shipped `-creator` is a convention violation that would regress section 2.1.
+  const forbiddenQualifiedCreatedSkill = /keryx:keryx-collector-(?!creator\b)/;
+  const shippedQualifiedSkills = ['keryx:keryx-worker', 'keryx:keryx-collector', 'keryx:keryx-collector-creator'] as const;
+
+  it('directs the collector-creator to write created skills into $HERMES_HOME/skills, not the repo tree', () => {
+    const creator = readFileSync(join(repoRoot, 'skills', 'keryx', 'keryx-collector-creator', 'SKILL.md'), 'utf8');
+
+    // Positive: created skills live in Hermes' space.
+    expect(creator).toContain('$HERMES_HOME/skills/keryx-collector-$NAME/SKILL.md');
+    expect(creator).toContain('Never generate this skill into the Keryx repository');
+
+    // Negative: the creator must never tell the author to drop a created skill into the
+    // repository's static skills/keryx/ plugin tree, where it could never resolve.
+    expect(creator).not.toMatch(/skills\/keryx\/keryx-collector/);
+  });
+
+  it('never instructs creating keryx:-qualified references for non-shipped collector skills', () => {
+    const offenders: string[] = [];
+
+    for (const absolutePath of collectConventionScanFiles()) {
+      const text = readFileSync(absolutePath, 'utf8');
+      text.split('\n').forEach((line, index) => {
+        if (forbiddenQualifiedCreatedSkill.test(line)) {
+          offenders.push(`${relative(repoRoot, absolutePath)}:${index + 1}: ${line.trim()}`);
+        }
+      });
+    }
+
+    expect(
+      offenders,
+      `created collector skills must be referenced unqualified (keryx-collector-<source>), not keryx:-prefixed:\n${offenders.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('keeps the three shipped plugin skills referenced with the keryx: prefix in the live tree', () => {
+    const corpus = collectConventionScanFiles()
+      .map((absolutePath) => readFileSync(absolutePath, 'utf8'))
+      .join('\n');
+
+    for (const shippedSkill of shippedQualifiedSkills) {
+      expect(corpus, `shipped skill ${shippedSkill} should remain plugin-qualified in the live tree`).toContain(shippedSkill);
+    }
+  });
+
+  function collectConventionScanFiles(): string[] {
+    const files: string[] = [];
+
+    const walk = (absoluteDir: string): void => {
+      if (resolve(absoluteDir) === resolve(excludedDir)) {
+        return;
+      }
+
+      for (const entry of readdirSync(absoluteDir, { withFileTypes: true })) {
+        const childPath = join(absoluteDir, entry.name);
+        if (entry.isDirectory()) {
+          walk(childPath);
+        } else if (entry.isFile()) {
+          files.push(childPath);
+        }
+      }
+    };
+
+    for (const dir of conventionScanDirs) {
+      walk(join(repoRoot, dir));
+    }
+    for (const file of conventionScanFiles) {
+      files.push(join(repoRoot, file));
+    }
+
+    return files;
+  }
 });
 
 function readRequiredFile(relativePath: string): string {
