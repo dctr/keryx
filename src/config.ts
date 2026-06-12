@@ -3,13 +3,8 @@ import { resolve } from 'node:path';
 
 export interface KeryxConfigFields {
   board: string;
-  pollIntervalMs: number;
   defaultAssignee: string;
-  defaultDeliveryTarget: string | null;
-  localOnly: boolean;
   hermesBin: string;
-  host: string;
-  port: number;
 }
 
 export interface KeryxConfig extends KeryxConfigFields {
@@ -28,14 +23,11 @@ export interface LoadConfigOptions {
 
 export const DEFAULT_KERYX_CONFIG: KeryxConfigFields = Object.freeze({
   board: 'keryx',
-  pollIntervalMs: 30_000,
   defaultAssignee: 'default',
-  defaultDeliveryTarget: null,
-  localOnly: true,
   hermesBin: 'hermes',
-  host: '127.0.0.1',
-  port: 4173,
 });
+
+const KNOWN_CONFIG_KEYS = new Set<keyof KeryxConfigFields>(['board', 'defaultAssignee', 'hermesBin']);
 
 const CONFIG_FILE_NAME = 'keryx.config.json';
 
@@ -82,24 +74,25 @@ function readConfigFile(configPath: string): Partial<KeryxConfigFields> {
     throw new Error(`Keryx config must be a JSON object: ${configPath}`);
   }
 
-  return parsed as Partial<KeryxConfigFields>;
+  return pickKnownKeys(parsed);
+}
+
+function pickKnownKeys(parsed: Record<string, unknown>): Partial<KeryxConfigFields> {
+  const result: Partial<KeryxConfigFields> = {};
+  for (const key of KNOWN_CONFIG_KEYS) {
+    if (key in parsed) {
+      result[key] = parsed[key] as KeryxConfigFields[typeof key];
+    }
+  }
+  return result;
 }
 
 function validateConfig(candidate: Partial<KeryxConfigFields>): KeryxConfigFields {
   const config = { ...DEFAULT_KERYX_CONFIG, ...candidate };
 
   assertNonEmptyString(config.board, 'board');
-  assertPositiveInteger(config.pollIntervalMs, 'pollIntervalMs');
   assertNonEmptyString(config.defaultAssignee, 'defaultAssignee');
-  if (config.defaultDeliveryTarget !== null) {
-    assertNonEmptyString(config.defaultDeliveryTarget, 'defaultDeliveryTarget');
-  }
-  if (typeof config.localOnly !== 'boolean') {
-    throw new Error('Keryx config field localOnly must be a boolean');
-  }
   assertNonEmptyString(config.hermesBin, 'hermesBin');
-  assertNonEmptyString(config.host, 'host');
-  assertPort(config.port);
 
   return config;
 }
@@ -107,18 +100,6 @@ function validateConfig(candidate: Partial<KeryxConfigFields>): KeryxConfigField
 function assertNonEmptyString(value: unknown, field: string): asserts value is string {
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new Error(`Keryx config field ${field} must be a non-empty string`);
-  }
-}
-
-function assertPositiveInteger(value: unknown, field: string): asserts value is number {
-  if (!Number.isInteger(value) || Number(value) <= 0) {
-    throw new Error(`Keryx config field ${field} must be a positive integer`);
-  }
-}
-
-function assertPort(value: unknown): asserts value is number {
-  if (!Number.isInteger(value) || Number(value) <= 0 || Number(value) > 65_535) {
-    throw new Error('Keryx config field port must be an integer between 1 and 65535');
   }
 }
 

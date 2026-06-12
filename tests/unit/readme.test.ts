@@ -26,7 +26,7 @@ describe('user-facing README', () => {
     }
   });
 
-  it('explains plugin setup, delivery target selection, and local-only mode', () => {
+  it('explains plugin setup and read-only delivery-target diagnostics without dead config fields', () => {
     const readme = readReadme();
 
     for (const phrase of [
@@ -34,14 +34,31 @@ describe('user-facing README', () => {
       '$HERMES_HOME/plugins/keryx',
       'hermes plugins enable keryx',
       'hermes keryx doctor',
+      'hermes keryx delivery-targets',
       'hermes send --list --json',
-      '--delivery-target <target>',
-      '--local-only',
-      'defaultDeliveryTarget',
-      'localOnly',
     ]) {
       expect(readme, `README should mention ${phrase}`).toContain(phrase);
     }
+
+    for (const removed of [
+      '--delivery-target',
+      '--local-only',
+      'defaultDeliveryTarget',
+      'localOnly',
+      'pollIntervalMs',
+    ]) {
+      expect(readme, `README should no longer mention removed config surface ${removed}`).not.toContain(removed);
+    }
+  });
+
+  it('documents env-based HOST/PORT server defaults instead of config host/port fields', () => {
+    const readme = readReadme();
+
+    expect(readme).toContain('127.0.0.1');
+    expect(readme).toContain('4173');
+    expect(readme).toMatch(/HOST.*PORT|PORT.*HOST/s);
+    expect(readme, 'README config example should not reuse the removed host field').not.toMatch(/"host"\s*:/);
+    expect(readme, 'README config example should not reuse the removed port field').not.toMatch(/"port"\s*:/);
   });
 
   it('covers collector authoring and the plugin-backed action-card safety contract', () => {

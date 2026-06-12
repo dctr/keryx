@@ -7,8 +7,6 @@ CONFIG_PATH=${KERYX_CONFIG:-"$ROOT_DIR/keryx.config.json"}
 HERMES_BIN=${HERMES_BIN:-hermes}
 DRY_RUN=0
 FORCE=0
-LOCAL_ONLY=0
-DELIVERY_TARGET=""
 HERMES_HOME_ARG=""
 
 usage() {
@@ -19,8 +17,6 @@ Options:
   --dry-run                    Print intended actions without writing files or running Hermes commands
   --hermes-home <path>         Install/enable the Keryx plugin in this Hermes home
   --force                      Replace an existing conflicting Keryx plugin path
-  --delivery-target <target>   Configure the default Keryx delivery target
-  --local-only                 Configure Keryx without a default delivery target
   --help                       Show this help
 USAGE
 }
@@ -40,17 +36,6 @@ while [ "$#" -gt 0 ]; do
       ;;
     --force)
       FORCE=1
-      ;;
-    --delivery-target)
-      shift
-      if [ "$#" -eq 0 ]; then
-        echo "FAIL --delivery-target requires a target" >&2
-        exit 2
-      fi
-      DELIVERY_TARGET=$1
-      ;;
-    --local-only)
-      LOCAL_ONLY=1
       ;;
     --help|-h)
       usage
@@ -209,64 +194,21 @@ enable_plugin() {
   say "OK plugin keryx enabled"
 }
 
-discover_delivery_targets() {
-  if [ "$DRY_RUN" -eq 1 ]; then
-    say "DRY-RUN would discover delivery targets with: $HERMES_BIN send --list --json"
-    if [ -z "$DELIVERY_TARGET" ] && [ "$LOCAL_ONLY" -eq 0 ]; then
-      LOCAL_ONLY=1
-    fi
-    return 0
-  fi
-
-  if ! DELIVERY_TARGETS_JSON=$(HERMES_HOME="$HERMES_HOME_PATH" "$HERMES_BIN" send --list --json 2>/dev/null); then
-    DELIVERY_TARGETS_JSON='[]'
-    say "WARN could not list Hermes delivery targets; continuing with explicit/local-only configuration"
-  fi
-
-  if [ -z "$DELIVERY_TARGET" ] && [ "$LOCAL_ONLY" -eq 0 ]; then
-    if [ -t 0 ]; then
-      say "Available Hermes delivery targets:"
-      printf '%s\n' "$DELIVERY_TARGETS_JSON"
-      printf 'Default Keryx delivery target (blank for local-only): '
-      IFS= read -r DELIVERY_TARGET || DELIVERY_TARGET=""
-      if [ -z "$DELIVERY_TARGET" ]; then
-        LOCAL_ONLY=1
-      fi
-    else
-      LOCAL_ONLY=1
-      say "WARN no --delivery-target supplied in non-interactive mode; using local-only configuration"
-    fi
-  fi
-
-  if [ "$LOCAL_ONLY" -eq 1 ]; then
-    DELIVERY_TARGET=""
-  fi
-}
-
 write_config() {
   if [ "$DRY_RUN" -eq 1 ]; then
-    if [ "$LOCAL_ONLY" -eq 1 ]; then
-      say "DRY-RUN would write Keryx config to $CONFIG_PATH with localOnly=true"
-    else
-      say "DRY-RUN would write Keryx config to $CONFIG_PATH with defaultDeliveryTarget=${DELIVERY_TARGET:-null}"
-    fi
+    say "DRY-RUN would write Keryx config to $CONFIG_PATH"
     return 0
   fi
 
   mkdir -p "$(dirname -- "$CONFIG_PATH")"
-  node --input-type=module - "$CONFIG_PATH" "$DELIVERY_TARGET" "$LOCAL_ONLY" "$HERMES_BIN" <<'NODE'
+  node --input-type=module - "$CONFIG_PATH" "$HERMES_BIN" <<'NODE'
 import { writeFileSync } from 'node:fs';
 
-const [configPath, deliveryTarget, localOnly, hermesBin] = process.argv.slice(2);
+const [configPath, hermesBin] = process.argv.slice(2);
 const config = {
   board: 'keryx',
-  pollIntervalMs: 30000,
   defaultAssignee: 'default',
-  defaultDeliveryTarget: deliveryTarget || null,
-  localOnly: localOnly === '1',
   hermesBin,
-  host: '127.0.0.1',
-  port: 4173,
 };
 writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 NODE
@@ -286,7 +228,6 @@ require_hermes_cli
 create_board
 install_plugin
 enable_plugin
-discover_delivery_targets
 write_config
 run_doctor
 say "OK setup complete"

@@ -51,7 +51,7 @@ Also run `npm run typecheck` when touching Svelte/UI or shared types, `npm run b
 - Keep Hermes command execution allowlisted in `src/hermes/adapter.ts`. Do not add generic shell/Hermes passthroughs.
 - Keryx action cards must validate as `keryx.action_item.v1`; execution decisions must validate as `keryx.execution_decision.v1`.
 - Malformed Kanban card bodies must remain visible to callers/operators rather than being silently dropped.
-- Preserve default local-only posture: `host` defaults to `127.0.0.1`, `localOnly` defaults to `true`, and the server has no built-in authentication.
+- Preserve default local-only posture: the server binds `127.0.0.1:4173` via the `HOST`/`PORT` environment variables (defaulting to localhost), and it has no built-in authentication.
 
 ## Security and side-effect boundaries
 

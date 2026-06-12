@@ -46,9 +46,8 @@ The setup script:
 1. checks that the Hermes CLI is available;
 2. ensures the Hermes Kanban board `keryx` exists;
 3. installs the Keryx plugin at `$HERMES_HOME/plugins/keryx` and enables it with `hermes plugins enable keryx`;
-4. discovers delivery targets with `hermes send --list --json`;
-5. writes `keryx.config.json`;
-6. runs `hermes keryx doctor`.
+4. writes `keryx.config.json`;
+5. runs `hermes keryx doctor`.
 
 It does not create real collector cron jobs. Collectors are authored and scheduled separately.
 
@@ -56,38 +55,30 @@ Useful setup modes:
 
 ```sh
 ./keryx-setup.sh --dry-run
-./keryx-setup.sh --delivery-target <target>
-./keryx-setup.sh --local-only
 ./keryx-setup.sh --hermes-home ~/.hermes-other
 ./keryx-setup.sh --force
 ```
 
 Delivery behaviour:
 
-- `--delivery-target <target>` sets `defaultDeliveryTarget` in `keryx.config.json`. Use one of the targets shown by `hermes keryx delivery-targets` or `hermes send --list --json`.
-- `--local-only` sets `localOnly: true` and `defaultDeliveryTarget: null`. Worker results stay in Kanban/UI unless the selected action specifies its own delivery.
-- In non-interactive setup, if no delivery target is supplied, setup falls back to local-only mode rather than guessing a channel.
+- Keryx does not own a default delivery target. Worker results stay in Kanban/UI unless the selected action's own `delivery` field routes them elsewhere.
+- Inspect the Hermes delivery targets a worker could use with `hermes keryx delivery-targets` (a read-only wrapper over `hermes send --list --json`). `hermes keryx doctor` reports how many are available as a diagnostic.
 
 ## Configuration
 
 Keryx reads `keryx.config.json` from the repository root unless `KERYX_CONFIG` points elsewhere. The plugin sets the repo-local config by default when delegating to `./bin/opsctl`.
 
-Example local-only configuration:
+Example configuration:
 
 ```json
 {
   "board": "keryx",
-  "pollIntervalMs": 30000,
   "defaultAssignee": "default",
-  "defaultDeliveryTarget": null,
-  "localOnly": true,
-  "hermesBin": "hermes",
-  "host": "127.0.0.1",
-  "port": 4173
+  "hermesBin": "hermes"
 }
 ```
 
-Keep `host` as `127.0.0.1` unless you have an authenticated reverse proxy or private network in front of Keryx.
+The local server reads its bind address from the `HOST` and `PORT` environment variables, defaulting to `127.0.0.1` and `4173`. Keep `HOST` as `127.0.0.1` unless you have an authenticated reverse proxy or private network in front of Keryx.
 
 ## Daily commands
 
@@ -164,13 +155,10 @@ Dry-run against fixtures before scheduling a collector. The shipped templates do
 
 Do not expose Keryx without external authentication.
 
-The Keryx server has no built-in authentication. Safe defaults are local only:
+The Keryx server has no built-in authentication. It binds to a safe local default, controlled by environment variables:
 
-```json
-{
-  "host": "127.0.0.1",
-  "port": 4173
-}
+```sh
+HOST=127.0.0.1 PORT=4173 npm start
 ```
 
 If you need remote access, keep Keryx bound to `127.0.0.1` and put an authenticated reverse proxy or private network in front of it. The example Caddy route is `deploy/caddy/Caddyfile.example`; it uses `basicauth` and proxies to `127.0.0.1:4173`. Copy and review it before use. The files under `deploy/` are examples only.
@@ -194,7 +182,7 @@ Common results:
 - `FAIL dependencies`: run `npm install` from the Keryx project root.
 - `FAIL plugin`: check `$HERMES_HOME/plugins/keryx`, run `hermes plugins list`, then rerun `hermes plugins enable keryx` or `./keryx-setup.sh`.
 - `FAIL hermes-cli`: make sure `hermes` is installed and on `PATH`, or set `hermesBin` in `keryx.config.json`.
-- `WARN no Hermes delivery targets available`: either configure Hermes gateway delivery and rerun setup, or use `./keryx-setup.sh --local-only`.
+- `WARN no Hermes delivery targets available`: expected when no Hermes gateway delivery is configured; configure a target and rerun `hermes keryx delivery-targets` if a worker action needs to deliver outside the local UI.
 - `WARN no keryx-* collector cron jobs configured`: expected before you author and schedule your first collector.
 - Invalid or hidden cards: run `hermes keryx list --status blocked`, then `hermes keryx show <task_id>` or `hermes keryx validate-card <card.json>`.
 - Approved cards do not run: confirm the card is `ready`, the assigned Hermes profile exists, and Kanban dispatch is running.

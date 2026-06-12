@@ -247,7 +247,7 @@ describe('read-only opsctl commands', () => {
     expect(runner).toHaveBeenCalledWith({ bin: 'hermes', args: ['send', '--list', '--json'], env: {} });
   });
 
-  it('accepts current Hermes platform delivery target JSON in doctor checks', async () => {
+  it('reports available Hermes delivery targets as a diagnostic in doctor checks', async () => {
     const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
     writeInstalledKeryxPlugin(hermesHome);
     const runner = vi.fn<HermesRunner>(async (request) => {
@@ -271,7 +271,7 @@ describe('read-only opsctl commands', () => {
       config: loadConfig({
         env: { HERMES_HOME: hermesHome },
         configPath: null,
-        overrides: { hermesBin: process.execPath, localOnly: false, defaultDeliveryTarget: 'telegram' },
+        overrides: { hermesBin: process.execPath },
       }),
       env: { HERMES_HOME: hermesHome, PATH: process.env.PATH },
       hermesRunner: runner,
@@ -279,8 +279,7 @@ describe('read-only opsctl commands', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toMatch(/^OK\s+delivery-targets: 2 target\(s\) available/m);
-    expect(result.stdout).toMatch(/^OK\s+delivery: default target=telegram/m);
-    expect(result.stdout).not.toContain('configured target not visible');
+    expect(result.stdout).not.toMatch(/^(OK|WARN|FAIL)\s+delivery:/m);
   });
 
   it('emits OK, WARN, and FAIL lines from doctor checks', async () => {
@@ -293,8 +292,8 @@ describe('read-only opsctl commands', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toMatch(/^OK\s+config:/m);
-    expect(result.stdout).toMatch(/^OK\s+delivery:/m);
     expect(result.stdout).toMatch(/^FAIL\s+hermes:/m);
+    expect(result.stdout).not.toMatch(/^(OK|WARN|FAIL)\s+delivery:/m);
   });
 
   it('fails doctor checks when the Keryx plugin is missing', async () => {
@@ -316,7 +315,7 @@ describe('read-only opsctl commands', () => {
       config: loadConfig({
         env: { HERMES_HOME: hermesHome },
         configPath: null,
-        overrides: { hermesBin: process.execPath, localOnly: true },
+        overrides: { hermesBin: process.execPath },
       }),
       env: { HERMES_HOME: hermesHome, PATH: process.env.PATH },
       hermesRunner: runner,
@@ -362,7 +361,7 @@ describe('read-only opsctl commands', () => {
       config: loadConfig({
         env: { HERMES_HOME: hermesHome },
         configPath: null,
-        overrides: { hermesBin: process.execPath, localOnly: true },
+        overrides: { hermesBin: process.execPath },
       }),
       env: { HERMES_HOME: hermesHome, PATH: process.env.PATH },
       hermesRunner: runner,
@@ -376,7 +375,7 @@ describe('read-only opsctl commands', () => {
     expect(result.stdout).toMatch(/^OK\s+dependencies:/m);
     expect(result.stdout).toMatch(/^OK\s+hermes:/m);
     expect(result.stdout).toMatch(/^OK\s+delivery-targets:/m);
-    expect(result.stdout).toMatch(/^OK\s+delivery:/m);
+    expect(result.stdout).not.toMatch(/^(OK|WARN|FAIL)\s+delivery:/m);
     expect(result.stdout).toMatch(/^OK\s+cron:/m);
     expect(runner).toHaveBeenCalledWith({ bin: process.execPath, args: ['send', '--list', '--json'], env: { HERMES_HOME: hermesHome } });
     expect(runner).toHaveBeenCalledWith({ bin: process.execPath, args: ['cron', 'list', '--all'], env: { HERMES_HOME: hermesHome } });
@@ -403,7 +402,7 @@ describe('read-only opsctl commands', () => {
       config: loadConfig({
         env: { HERMES_HOME: hermesHome },
         configPath: null,
-        overrides: { hermesBin: process.execPath, localOnly: true },
+        overrides: { hermesBin: process.execPath },
       }),
       cwd: outsideCwd,
       env: { HERMES_HOME: hermesHome, PATH: process.env.PATH },

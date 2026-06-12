@@ -450,9 +450,8 @@ async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, options: D
     lines.push({ level: 'FAIL', check: 'hermes', message: error instanceof Error ? error.message : String(error) });
   }
 
-  let deliveryTargets: Awaited<ReturnType<HermesCliAdapter['listDeliveryTargets']>> | undefined;
   try {
-    deliveryTargets = await adapter.listDeliveryTargets();
+    const deliveryTargets = await adapter.listDeliveryTargets();
     lines.push({
       level: deliveryTargets.length > 0 ? 'OK' : 'WARN',
       check: 'delivery-targets',
@@ -460,19 +459,6 @@ async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, options: D
     });
   } catch (error) {
     lines.push({ level: 'FAIL', check: 'delivery-targets', message: error instanceof Error ? error.message : String(error) });
-  }
-
-  if (config.localOnly) {
-    lines.push({ level: 'OK', check: 'delivery', message: 'local-only mode enabled; no default delivery target required' });
-  } else if (config.defaultDeliveryTarget) {
-    const targetVisible = deliveryTargets?.some((target) => target.target === config.defaultDeliveryTarget);
-    lines.push({
-      level: targetVisible === false ? 'WARN' : 'OK',
-      check: 'delivery',
-      message: targetVisible === false ? `configured target not visible: ${config.defaultDeliveryTarget}` : `default target=${config.defaultDeliveryTarget}`,
-    });
-  } else {
-    lines.push({ level: 'WARN', check: 'delivery', message: 'no defaultDeliveryTarget configured; run `./keryx-setup.sh` or use --local-only' });
   }
 
   try {

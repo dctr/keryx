@@ -35,7 +35,7 @@ describe('keryx setup script', () => {
   it('prints intended plugin actions and writes nothing in dry-run mode', async () => {
     const harness = createHarness();
 
-    const { stdout, stderr } = await runSetup(['--dry-run', '--hermes-home', harness.hermesHome, '--delivery-target', 'telegram'], harness);
+    const { stdout, stderr } = await runSetup(['--dry-run', '--hermes-home', harness.hermesHome], harness);
 
     expect(stderr).toBe('');
     expect(stdout).toContain('DRY-RUN');
@@ -51,10 +51,10 @@ describe('keryx setup script', () => {
     expect(readLog(harness)).toBe('');
   });
 
-  it('uses the supplied Hermes home, installs and enables the plugin, writes delivery-target config, and creates no collector cron jobs', async () => {
+  it('uses the supplied Hermes home, installs and enables the plugin, writes config, and creates no collector cron jobs', async () => {
     const harness = createHarness();
 
-    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome, '--delivery-target', 'telegram'], harness);
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome], harness);
 
     expect(stderr).toBe('');
     expect(stdout).toContain('OK setup complete');
@@ -65,32 +65,35 @@ describe('keryx setup script', () => {
     expect(existsSync(join(harness.hermesHome, 'skills', 'keryx'))).toBe(false);
 
     const config = JSON.parse(readFileSync(harness.configPath, 'utf8')) as Record<string, unknown>;
-    expect(config).toMatchObject({
+    expect(config).toEqual({
       board: 'keryx',
-      defaultDeliveryTarget: 'telegram',
-      localOnly: false,
+      defaultAssignee: 'default',
       hermesBin: 'hermes',
-      host: '127.0.0.1',
-      port: 4173,
     });
+    for (const field of ['pollIntervalMs', 'defaultDeliveryTarget', 'localOnly', 'host', 'port']) {
+      expect(field in config, `setup config should not write removed field ${field}`).toBe(false);
+    }
 
     const calls = readLog(harness);
     expect(calls).toContain(`${harness.hermesHome}|kanban boards create keryx --name Keryx`);
     expect(calls).toContain(`${harness.hermesHome}|plugins enable keryx`);
-    expect(calls).toContain(`${harness.hermesHome}|send --list --json`);
     expect(calls).toContain(`${harness.hermesHome}|keryx doctor`);
+    expect(calls).not.toContain('send --list --json');
     expect(calls).not.toMatch(/\bcron\s+create\b|\bcronjob\s+create\b|\bcreate\s+cron\b/i);
   });
 
-  it('writes local-only config with no default delivery target', async () => {
+  it('rejects the removed delivery-target and local-only flags', async () => {
     const harness = createHarness();
 
-    await runSetup(['--hermes-home', harness.hermesHome, '--local-only'], harness);
+    const deliveryTargetFailure = await runSetupFailure(['--hermes-home', harness.hermesHome, '--delivery-target', 'telegram'], harness);
+    expect(deliveryTargetFailure.code).toBe(2);
+    expect(deliveryTargetFailure.stderr).toContain('unknown option: --delivery-target');
 
-    const config = JSON.parse(readFileSync(harness.configPath, 'utf8')) as Record<string, unknown>;
-    expect(config.defaultDeliveryTarget).toBeNull();
-    expect(config.localOnly).toBe(true);
-    expect(readLog(harness)).not.toMatch(/\bcron\s+create\b|\bcronjob\s+create\b|\bcreate\s+cron\b/i);
+    const localOnlyFailure = await runSetupFailure(['--hermes-home', harness.hermesHome, '--local-only'], harness);
+    expect(localOnlyFailure.code).toBe(2);
+    expect(localOnlyFailure.stderr).toContain('unknown option: --local-only');
+
+    expect(existsSync(harness.configPath)).toBe(false);
   });
 
   it('preserves an existing symlink to the current plugin source', async () => {
@@ -99,7 +102,7 @@ describe('keryx setup script', () => {
     mkdirSync(join(harness.hermesHome, 'plugins'), { recursive: true });
     symlinkSync(sourcePluginDir, pluginDir, 'dir');
 
-    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome, '--local-only'], harness);
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome], harness);
 
     expect(stderr).toBe('');
     expect(stdout).toContain('OK plugin symlink already installed');
@@ -115,7 +118,7 @@ describe('keryx setup script', () => {
     mkdirSync(otherPluginDir, { recursive: true });
     symlinkSync(otherPluginDir, pluginDir, 'dir');
 
-    const failure = await runSetupFailure(['--hermes-home', harness.hermesHome, '--local-only'], harness);
+    const failure = await runSetupFailure(['--hermes-home', harness.hermesHome], harness);
 
     expect(failure.code).toBe(1);
     expect(failure.stderr).toContain('existing Keryx plugin symlink points elsewhere');
@@ -129,7 +132,7 @@ describe('keryx setup script', () => {
     mkdirSync(pluginDir, { recursive: true });
     writeFileSync(join(pluginDir, 'user-file.txt'), 'preserve me\n', 'utf8');
 
-    const failure = await runSetupFailure(['--hermes-home', harness.hermesHome, '--local-only'], harness);
+    const failure = await runSetupFailure(['--hermes-home', harness.hermesHome], harness);
 
     expect(failure.code).toBe(1);
     expect(failure.stderr).toContain('existing Keryx plugin path exists; rerun with --force');
@@ -145,7 +148,7 @@ describe('keryx setup script', () => {
     mkdirSync(otherPluginDir, { recursive: true });
     symlinkSync(otherPluginDir, pluginDir, 'dir');
 
-    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome, '--local-only', '--force'], harness);
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome, '--force'], harness);
 
     expect(stderr).toBe('');
     expect(stdout).toContain('OK installed plugin symlink');
@@ -158,7 +161,7 @@ describe('keryx setup script', () => {
     mkdirSync(pluginDir, { recursive: true });
     writeFileSync(join(pluginDir, 'user-file.txt'), 'replace me\n', 'utf8');
 
-    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome, '--local-only', '--force'], harness);
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome, '--force'], harness);
 
     expect(stderr).toBe('');
     expect(stdout).toContain('OK installed plugin symlink');
@@ -168,13 +171,13 @@ describe('keryx setup script', () => {
 
   it('copies the adapter with a root locator only when symlink creation is disabled', async () => {
     const normalHarness = createHarness();
-    await runSetup(['--hermes-home', normalHarness.hermesHome, '--local-only'], normalHarness);
+    await runSetup(['--hermes-home', normalHarness.hermesHome], normalHarness);
     const normalPluginDir = installedPluginDir(normalHarness);
     expect(lstatSync(normalPluginDir).isSymbolicLink()).toBe(true);
     expect(existsSync(join(normalPluginDir, 'keryx-root.txt'))).toBe(false);
 
     const fallbackHarness = createHarness();
-    await runSetup(['--hermes-home', fallbackHarness.hermesHome, '--local-only'], {
+    await runSetup(['--hermes-home', fallbackHarness.hermesHome], {
       ...fallbackHarness,
       env: {
         ...fallbackHarness.env,
