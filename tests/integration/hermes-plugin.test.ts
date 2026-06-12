@@ -1,12 +1,19 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { describe, expect, it } from 'vitest';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve('.');
+const sourcePluginDir = resolve('hermes-plugin');
+const expectedCollectorCreatorBundle = `name: keryx-collector-creator
+description: Design and author new Keryx collectors.
+skills:
+  - keryx:keryx-collector-creator
+`;
 
 async function runPython(source: string) {
   return execFileAsync('python3', ['-c', source], {
@@ -15,7 +22,95 @@ async function runPython(source: string) {
   });
 }
 
+async function resolveHermesPython(): Promise<string | null> {
+  const configured = process.env.HERMES_AGENT_PYTHON;
+  if (configured && existsSync(configured)) {
+    return configured;
+  }
+
+  try {
+    const { stdout } = await execFileAsync('sh', ['-lc', 'command -v hermes && head -n 1 "$(command -v hermes)"'], {
+      cwd: repoRoot,
+      env: process.env,
+    });
+    const shebang = stdout.trim().split('\n').at(-1) ?? '';
+    const match = shebang.match(/^#!([^\s]+python\d*(?:\.\d*)?)/);
+    if (match?.[1] && existsSync(match[1])) {
+      return match[1];
+    }
+  } catch {
+    // Hermes internals are optional for this repository's portable test suite.
+  }
+
+  return null;
+}
+
 describe('Hermes plugin adapter', () => {
+  it('resolves the collector creator bundle to the plugin-qualified creator skill when Hermes internals are available', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-hermes-home-'));
+    try {
+      mkdirSync(join(hermesHome, 'plugins'), { recursive: true });
+      mkdirSync(join(hermesHome, 'skill-bundles'), { recursive: true });
+      symlinkSync(sourcePluginDir, join(hermesHome, 'plugins', 'keryx'), 'dir');
+      writeFileSync(
+        join(hermesHome, 'config.yaml'),
+        `plugins:\n  enabled:\n    - keryx\n`,
+        'utf8',
+      );
+      writeFileSync(
+        join(hermesHome, 'skill-bundles', 'keryx-collector-creator.yaml'),
+        expectedCollectorCreatorBundle,
+        'utf8',
+      );
+
+      const hermesPython = await resolveHermesPython();
+      if (!hermesPython) {
+        const pluginSource = readFileSync(resolve('hermes-plugin/__init__.py'), 'utf8');
+        expect(expectedCollectorCreatorBundle).toContain('name: keryx-collector-creator');
+        expect(expectedCollectorCreatorBundle).toContain('  - keryx:keryx-collector-creator');
+        expect(pluginSource).toContain('"keryx-collector-creator"');
+        return;
+      }
+
+      const { stdout, stderr } = await execFileAsync(hermesPython, ['-c', `
+import json
+from hermes_cli.plugins import discover_plugins, get_plugin_manager
+from agent.skill_bundles import build_bundle_invocation_message, resolve_bundle_command_key
+
+discover_plugins(force=True)
+manager = get_plugin_manager()
+result = build_bundle_invocation_message('/keryx-collector-creator')
+print(json.dumps({
+    'bundle_key': resolve_bundle_command_key('keryx-collector-creator'),
+    'plugin_skills': sorted(manager.list_plugin_skills('keryx')),
+    'result_exists': result is not None,
+    'loaded': result[1] if result else None,
+    'missing': result[2] if result else None,
+}, sort_keys=True))
+`], {
+        cwd: repoRoot,
+        env: { ...process.env, HERMES_HOME: hermesHome, PYTHONDONTWRITEBYTECODE: '1' },
+      });
+
+      expect(stderr).toBe('');
+      const result = JSON.parse(stdout) as {
+        bundle_key: string | null;
+        plugin_skills: string[];
+        result_exists: boolean;
+        loaded: string[] | null;
+        missing: string[] | null;
+      };
+
+      expect(result.bundle_key).toBe('/keryx-collector-creator');
+      expect(result.plugin_skills).toContain('keryx-collector-creator');
+      expect(result.result_exists).toBe(true);
+      expect(result.loaded).toEqual(['keryx:keryx-collector-creator']);
+      expect(result.missing).toEqual([]);
+    } finally {
+      rmSync(hermesHome, { recursive: true, force: true });
+    }
+  });
+
   it('registers the keryx CLI command and bundled repository skills without side effects', async () => {
     const { stdout, stderr } = await runPython(`
 import importlib.util, json, pathlib
