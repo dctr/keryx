@@ -16,7 +16,7 @@ Usage: ./keryx-setup.sh [options]
 Options:
   --dry-run                    Print intended actions without writing files or running Hermes commands
   --hermes-home <path>         Install/enable the Keryx plugin in this Hermes home
-  --force                      Replace an existing conflicting Keryx plugin path
+  --force                      Replace an existing conflicting Keryx plugin path and overwrite an existing keryx.config.json
   --help                       Show this help
 USAGE
 }
@@ -195,9 +195,37 @@ enable_plugin() {
 }
 
 write_config() {
+  config_exists=0
+  if [ -e "$CONFIG_PATH" ]; then
+    config_exists=1
+  fi
+
   if [ "$DRY_RUN" -eq 1 ]; then
-    say "DRY-RUN would write Keryx config to $CONFIG_PATH"
+    if [ "$config_exists" -eq 1 ] && [ "$FORCE" -ne 1 ]; then
+      say "DRY-RUN would keep existing Keryx config: $CONFIG_PATH"
+    elif [ "$config_exists" -eq 1 ]; then
+      say "DRY-RUN would overwrite existing Keryx config: $CONFIG_PATH"
+    else
+      say "DRY-RUN would write Keryx config to $CONFIG_PATH"
+    fi
     return 0
+  fi
+
+  if [ "$config_exists" -eq 1 ] && [ "$FORCE" -ne 1 ]; then
+    if [ -t 0 ]; then
+      printf '%s' "keryx.config.json exists; overwrite? [y/N] "
+      read -r reply || reply=""
+      case "$reply" in
+        [Yy]|[Yy][Ee][Ss]) ;;
+        *)
+          say "OK keeping existing config"
+          return 0
+          ;;
+      esac
+    else
+      say "WARN existing keryx.config.json kept; rerun with --force to overwrite"
+      return 0
+    fi
   fi
 
   mkdir -p "$(dirname -- "$CONFIG_PATH")"

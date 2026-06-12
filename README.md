@@ -46,7 +46,7 @@ The setup script:
 1. checks that the Hermes CLI is available;
 2. ensures the Hermes Kanban board `keryx` exists;
 3. installs the Keryx plugin at `$HERMES_HOME/plugins/keryx` and enables it with `hermes plugins enable keryx`;
-4. writes `keryx.config.json`;
+4. writes `keryx.config.json` (existing configs are preserved by default — see below);
 5. runs `hermes keryx doctor`.
 
 It does not create real collector cron jobs. Collectors are authored and scheduled separately.
@@ -58,6 +58,8 @@ Useful setup modes:
 ./keryx-setup.sh --hermes-home ~/.hermes-other
 ./keryx-setup.sh --force
 ```
+
+`--force` replaces an existing conflicting Keryx plugin path and overwrites an existing `keryx.config.json`. Without `--force`, an existing `keryx.config.json` is kept: interactive runs are prompted (`keryx.config.json exists; overwrite? [y/N]`, defaulting to keep), while non-interactive runs keep the file and print a `WARN` telling you to rerun with `--force`. `--dry-run` reports whether it would write, keep, or overwrite without touching the file.
 
 Delivery behaviour:
 

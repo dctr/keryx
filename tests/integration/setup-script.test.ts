@@ -191,6 +191,86 @@ describe('keryx setup script', () => {
     expect(readFileSync(join(fallbackPluginDir, 'keryx-root.txt'), 'utf8')).toBe(`${repoRoot}\n`);
     expect(existsSync(join(fallbackHarness.hermesHome, 'skills', 'keryx'))).toBe(false);
   });
+
+  it('writes a fresh config when none exists', async () => {
+    const harness = createHarness();
+    expect(existsSync(harness.configPath)).toBe(false);
+
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('OK wrote Keryx config');
+    const config = JSON.parse(readFileSync(harness.configPath, 'utf8')) as Record<string, unknown>;
+    expect(config).toEqual({ board: 'keryx', defaultAssignee: 'default', hermesBin: 'hermes' });
+  });
+
+  it('keeps an existing config without --force when non-interactive', async () => {
+    const harness = createHarness();
+    const customConfig = `${JSON.stringify(
+      { board: 'custom', defaultAssignee: 'analyst', hermesBin: 'hermes' },
+      null,
+      2,
+    )}\n`;
+    writeFileSync(harness.configPath, customConfig, 'utf8');
+
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('WARN existing keryx.config.json kept; rerun with --force to overwrite');
+    expect(stdout).not.toContain('OK wrote Keryx config');
+    expect(stdout).toContain('OK setup complete');
+    expect(readFileSync(harness.configPath, 'utf8')).toBe(customConfig);
+  });
+
+  it('overwrites an existing config when --force is supplied', async () => {
+    const harness = createHarness();
+    const customConfig = `${JSON.stringify(
+      { board: 'custom', defaultAssignee: 'analyst', hermesBin: 'hermes' },
+      null,
+      2,
+    )}\n`;
+    writeFileSync(harness.configPath, customConfig, 'utf8');
+
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome, '--force'], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('OK wrote Keryx config');
+    const config = JSON.parse(readFileSync(harness.configPath, 'utf8')) as Record<string, unknown>;
+    expect(config).toEqual({ board: 'keryx', defaultAssignee: 'default', hermesBin: 'hermes' });
+  });
+
+  it('reports it would keep an existing config in dry-run without --force', async () => {
+    const harness = createHarness();
+    const customConfig = `${JSON.stringify(
+      { board: 'custom', defaultAssignee: 'analyst', hermesBin: 'hermes' },
+      null,
+      2,
+    )}\n`;
+    writeFileSync(harness.configPath, customConfig, 'utf8');
+
+    const { stdout, stderr } = await runSetup(['--dry-run', '--hermes-home', harness.hermesHome], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('DRY-RUN would keep existing Keryx config');
+    expect(stdout).not.toContain('DRY-RUN would overwrite existing Keryx config');
+    expect(readFileSync(harness.configPath, 'utf8')).toBe(customConfig);
+  });
+
+  it('reports it would overwrite an existing config in dry-run with --force', async () => {
+    const harness = createHarness();
+    const customConfig = `${JSON.stringify(
+      { board: 'custom', defaultAssignee: 'analyst', hermesBin: 'hermes' },
+      null,
+      2,
+    )}\n`;
+    writeFileSync(harness.configPath, customConfig, 'utf8');
+
+    const { stdout, stderr } = await runSetup(['--dry-run', '--hermes-home', harness.hermesHome, '--force'], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('DRY-RUN would overwrite existing Keryx config');
+    expect(readFileSync(harness.configPath, 'utf8')).toBe(customConfig);
+  });
 });
 
 async function runSetup(args: string[], harness: Harness): Promise<{ stdout: string; stderr: string }> {
