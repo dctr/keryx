@@ -36,7 +36,6 @@
   let urgentOnly = false;
 
   let feedbackByTask: Record<string, string> = {};
-  let selectedOptionByTask: Record<string, string> = {};
   let pendingByTask: Record<string, PendingAction | undefined> = {};
 
   $: taskViews = tasks.map(mapTaskToView);
@@ -62,7 +61,6 @@
       malformedCards = taskResponse.errors.map(mapMalformedTaskError);
       sources = sourceResponse.sources;
       lastUpdated = new Date();
-      syncSelectedOptions(tasks.map(mapTaskToView));
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
     } finally {
@@ -71,49 +69,29 @@
     }
   }
 
-  function syncSelectedOptions(views: TaskCardView[]): void {
-    const nextSelections = { ...selectedOptionByTask };
-    for (const task of views) {
-      const selected = nextSelections[task.id];
-      if (!selected || !task.options.some((option) => option.id === selected)) {
-        const primary = task.primaryOption ?? task.options[0];
-        if (primary) {
-          nextSelections[task.id] = primary.id;
-        }
-      }
-    }
-    selectedOptionByTask = nextSelections;
-  }
-
-  function selectedOptionId(task: TaskCardView): string | null {
-    return selectedOptionByTask[task.id] ?? task.primaryOption?.id ?? task.options[0]?.id ?? null;
-  }
-
-  function selectedOption(task: TaskCardView): ActionOption | null {
-    const optionId = selectedOptionId(task);
-    return task.options.find((option) => option.id === optionId) ?? task.primaryOption ?? task.options[0] ?? null;
-  }
-
-  function selectOption(taskId: string, optionId: string): void {
-    selectedOptionByTask = { ...selectedOptionByTask, [taskId]: optionId };
-  }
-
   function setFeedback(taskId: string, event: Event): void {
     const target = event.currentTarget as HTMLTextAreaElement;
     feedbackByTask = { ...feedbackByTask, [taskId]: target.value };
   }
 
-  async function handleExecute(task: TaskCardView): Promise<void> {
-    const optionId = selectedOptionId(task);
-    if (!optionId) {
-      errorMessage = `No option selected for ${task.title}.`;
+  function optionNeedsFeedback(task: TaskCardView, option: ActionOption): boolean {
+    return option.requires_input && (feedbackByTask[task.id] ?? '').trim().length === 0;
+  }
+
+  function feedbackPlaceholder(task: TaskCardView): string {
+    return task.primaryOption?.input_hint ?? task.options.find((option) => option.input_hint)?.input_hint ?? 'Optional feedback, instruction, or dismissal reason';
+  }
+
+  async function handleExecute(task: TaskCardView, option: ActionOption): Promise<void> {
+    if (optionNeedsFeedback(task, option)) {
+      errorMessage = `Feedback is required for ${option.label}.`;
       return;
     }
 
     pendingByTask = { ...pendingByTask, [task.id]: 'execute' };
     errorMessage = null;
     try {
-      const response = await executeTask(task.id, optionId, feedbackByTask[task.id] ?? '');
+      const response = await executeTask(task.id, option.id, feedbackByTask[task.id] ?? '');
       updateTaskStatus(task.id, response.status ?? 'ready');
       feedbackByTask = { ...feedbackByTask, [task.id]: '' };
     } catch (error) {
@@ -311,43 +289,29 @@
           {/if}
 
           {#if task.options.length > 0}
-            <section class="options" aria-label={`Options for ${task.title}`}>
-              <p>Options</p>
-              <div class="option-buttons">
-                {#each task.options as option (option.id)}
-                  <button
-                    class:selected={selectedOptionId(task) === option.id}
-                    type="button"
-                    aria-pressed={selectedOptionId(task) === option.id}
-                    onclick={() => selectOption(task.id, option.id)}
-                  >
-                    {option.label}
-                  </button>
-                {/each}
-              </div>
-            </section>
-
             <label class="feedback">
               Feedback for {task.title}
               <textarea
                 aria-label={`Feedback for ${task.title}`}
-                placeholder={selectedOption(task)?.input_hint ?? 'Optional feedback, instruction, or dismissal reason'}
+                placeholder={feedbackPlaceholder(task)}
                 value={feedbackByTask[task.id] ?? ''}
                 oninput={(event) => setFeedback(task.id, event)}
               ></textarea>
             </label>
 
             <div class="task-actions">
-              <button
-                class="primary"
-                type="button"
-                disabled={pendingByTask[task.id] !== undefined || selectedOptionId(task) === null}
-                onclick={() => handleExecute(task)}
-              >
-                {pendingByTask[task.id] === 'execute' ? 'Executing…' : `Execute ${task.title}`}
-              </button>
+              {#each task.options as option (option.id)}
+                <button
+                  class="primary"
+                  type="button"
+                  disabled={pendingByTask[task.id] !== undefined || optionNeedsFeedback(task, option)}
+                  onclick={() => handleExecute(task, option)}
+                >
+                  {pendingByTask[task.id] === 'execute' ? 'Executing…' : option.label}
+                </button>
+              {/each}
               <button class="danger" type="button" disabled={pendingByTask[task.id] !== undefined} onclick={() => handleDismiss(task)}>
-                {pendingByTask[task.id] === 'dismiss' ? 'Dismissing…' : `Dismiss ${task.title}`}
+                {pendingByTask[task.id] === 'dismiss' ? 'Dismissing…' : 'Dismiss'}
               </button>
             </div>
           {:else}

@@ -70,10 +70,9 @@ test('renders the action inbox and sends execute/dismiss requests to the API', a
   await expect(emailCard.getByText('Customer reports that account access is failing after a recent change.')).toBeVisible();
   await expect(emailCard.getByText('Support request may stall if ignored.')).toBeVisible();
   await expect(emailCard.getByText('Needs User')).toBeVisible();
-  await expect(emailCard.getByRole('button', { name: 'Translate + forward to support contact + archive email' })).toBeVisible();
   await expect(emailCard.getByLabel('Feedback for Support request: account access needs review')).toBeVisible();
-  await expect(emailCard.getByRole('button', { name: 'Execute Support request: account access needs review' })).toBeVisible();
-  await expect(emailCard.getByRole('button', { name: 'Dismiss Support request: account access needs review' })).toBeVisible();
+  await expect(emailCard.getByRole('button', { name: 'Translate + forward to support contact + archive email' })).toBeEnabled();
+  await expect(emailCard.getByRole('button', { name: 'Dismiss', exact: true })).toBeVisible();
 
   await expect(page.getByRole('alert')).toContainText('Malformed cards');
   await expect(page.getByRole('alert')).toContainText('Bad action');
@@ -91,7 +90,6 @@ test('renders the action inbox and sends execute/dismiss requests to the API', a
   await page.getByLabel('Autonomy', { exact: true }).selectOption('all');
   await page.getByLabel('Feedback for Support request: account access needs review').fill('Please be brief.');
   await page.getByRole('button', { name: 'Translate + forward to support contact + archive email' }).click();
-  await page.getByRole('button', { name: 'Execute Support request: account access needs review' }).click();
 
   expect(api.executeRequests).toEqual([
     { taskId: 't_email', body: { option_id: 'translate_forward_contact_archive', feedback: 'Please be brief.' } },
@@ -103,8 +101,11 @@ test('renders the action inbox and sends execute/dismiss requests to the API', a
   await expect(page.getByTestId('task-card-t_email').getByText('Queued')).toBeVisible();
 
   await page.getByRole('button', { name: /Inbox/ }).click();
+  const workshopCard = page.getByTestId('task-card-t_workshop');
+  await expect(workshopCard.getByRole('button', { name: 'Start booking in GUI browser' })).toBeDisabled();
   await page.getByLabel('Feedback for Workshop booking opportunity').fill('Not worth pursuing.');
-  await page.getByRole('button', { name: 'Dismiss Workshop booking opportunity' }).click();
+  await expect(workshopCard.getByRole('button', { name: 'Start booking in GUI browser' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
 
   expect(api.dismissRequests).toEqual([{ taskId: 't_workshop', body: { reason: 'Not worth pursuing.' } }]);
   await page.getByRole('button', { name: /Dismissed/ }).click();

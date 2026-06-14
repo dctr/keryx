@@ -173,7 +173,6 @@ h2 {
 }
 
 .views button,
-.option-buttons button,
 .secondary,
 .primary,
 .danger {
@@ -196,8 +195,7 @@ h2 {
   text-align: left;
 }
 
-.views button.active,
-.option-buttons button.selected {
+.views button.active {
   border-color: #8fb4ff;
   background: #1c2a43;
 }
@@ -355,27 +353,10 @@ textarea {
   padding-left: 0.75rem;
 }
 
-.options {
-  display: grid;
-  gap: 0.55rem;
-  margin-top: 1rem;
-}
-
-.options p {
-  margin-bottom: 0;
-  color: #dbe2ed;
-  font-weight: 800;
-}
-
-.option-buttons,
 .task-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
-}
-
-.option-buttons button {
-  padding: 0.6rem 0.8rem;
 }
 
 .feedback {
@@ -412,7 +393,6 @@ textarea {
 .secondary:hover,
 .primary:hover,
 .danger:hover,
-.option-buttons button:hover,
 .views button:hover {
   transform: translateY(-1px);
 }
