@@ -289,22 +289,21 @@
           {/if}
 
           {#if task.options.length > 0}
-            <label class="feedback">
-              Feedback for {task.title}
+            <div class="feedback">
               <textarea
                 aria-label={`Feedback for ${task.title}`}
                 placeholder={feedbackPlaceholder(task)}
                 value={feedbackByTask[task.id] ?? ''}
                 oninput={(event) => setFeedback(task.id, event)}
               ></textarea>
-            </label>
+            </div>
 
             <div class="task-actions">
               {#each task.options as option (option.id)}
                 <button
                   class="primary"
                   type="button"
-                  disabled={pendingByTask[task.id] !== undefined || optionNeedsFeedback(task, option)}
+                  disabled={pendingByTask[task.id] !== undefined || (option.requires_input && (feedbackByTask[task.id] ?? '').trim().length === 0)}
                   onclick={() => handleExecute(task, option)}
                 >
                   {pendingByTask[task.id] === 'execute' ? 'Executing…' : option.label}

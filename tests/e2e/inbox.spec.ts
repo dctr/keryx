@@ -70,6 +70,7 @@ test('renders the action inbox and sends execute/dismiss requests to the API', a
   await expect(emailCard.getByText('Customer reports that account access is failing after a recent change.')).toBeVisible();
   await expect(emailCard.getByText('Support request may stall if ignored.')).toBeVisible();
   await expect(emailCard.getByText('Needs User')).toBeVisible();
+  await expect(emailCard.getByText(/^Feedback for/)).toHaveCount(0);
   await expect(emailCard.getByLabel('Feedback for Support request: account access needs review')).toBeVisible();
   await expect(emailCard.getByRole('button', { name: 'Translate + forward to support contact + archive email' })).toBeEnabled();
   await expect(emailCard.getByRole('button', { name: 'Dismiss', exact: true })).toBeVisible();
@@ -102,9 +103,17 @@ test('renders the action inbox and sends execute/dismiss requests to the API', a
 
   await page.getByRole('button', { name: /Inbox/ }).click();
   const workshopCard = page.getByTestId('task-card-t_workshop');
-  await expect(workshopCard.getByRole('button', { name: 'Start booking in GUI browser' })).toBeDisabled();
-  await page.getByLabel('Feedback for Workshop booking opportunity').fill('Not worth pursuing.');
-  await expect(workshopCard.getByRole('button', { name: 'Start booking in GUI browser' })).toBeEnabled();
+  const workshopAction = workshopCard.getByRole('button', { name: 'Start booking in GUI browser' });
+  const workshopFeedback = page.getByLabel('Feedback for Workshop booking opportunity');
+  await expect(workshopAction).toBeDisabled();
+  await workshopFeedback.click();
+  await workshopFeedback.press('N');
+  expect(await workshopAction.isEnabled()).toBe(true);
+  await workshopFeedback.press('Control+A');
+  await workshopFeedback.press('Backspace');
+  expect(await workshopAction.isDisabled()).toBe(true);
+  await workshopFeedback.fill('Not worth pursuing.');
+  expect(await workshopAction.isEnabled()).toBe(true);
   await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
 
   expect(api.dismissRequests).toEqual([{ taskId: 't_workshop', body: { reason: 'Not worth pursuing.' } }]);
