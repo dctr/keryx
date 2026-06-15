@@ -39,9 +39,9 @@ const validActionItem: ActionItem = {
 };
 
 describe('opsctl create-card', () => {
-  it('validates an action-item and creates a blocked Kanban card through the central Keryx policy', async () => {
-    const runner = vi.fn<HermesRunner>(async () => ({
-      stdout: JSON.stringify({ id: 't_created', title: validActionItem.title, status: 'blocked' }),
+  it('validates an action-item and creates a sticky-blocked Kanban card before assigning a worker', async () => {
+    const runner = vi.fn<HermesRunner>(async (request) => ({
+      stdout: request.args[3] === 'create' ? JSON.stringify({ id: 't_created', title: validActionItem.title, status: 'ready' }) : '',
       stderr: '',
       exitCode: 0,
     }));
@@ -54,10 +54,9 @@ describe('opsctl create-card', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toEqual({ id: 't_created', title: validActionItem.title, status: 'blocked' });
-    expect(runner).toHaveBeenCalledWith({
-      bin: 'hermes',
-      args: [
+    expect(JSON.parse(result.stdout)).toEqual({ id: 't_created', title: validActionItem.title, status: 'ready' });
+    expect(runner.mock.calls.map(([request]) => request.args)).toEqual([
+      [
         'kanban',
         '--board',
         'keryx',
@@ -65,8 +64,6 @@ describe('opsctl create-card', () => {
         validActionItem.title,
         '--body',
         JSON.stringify(validActionItem),
-        '--assignee',
-        'default',
         '--tenant',
         validActionItem.source,
         '--idempotency-key',
@@ -75,12 +72,39 @@ describe('opsctl create-card', () => {
         validActionItem.collector,
         '--skill',
         'keryx:keryx-worker',
-        '--initial-status',
-        'blocked',
         '--json',
       ],
-      env: {},
+      [
+        'kanban',
+        '--board',
+        'keryx',
+        'block',
+        't_created',
+        'approval-required: Keryx candidate awaiting user decision',
+      ],
+      ['kanban', '--board', 'keryx', 'assign', 't_created', 'default'],
+    ]);
+    for (const [request] of runner.mock.calls) {
+      expect(request.env).toEqual({});
+    }
+  });
+
+  it('skips the block command when idempotency returns an already-blocked card', async () => {
+    const runner = vi.fn<HermesRunner>(async (request) => ({
+      stdout: request.args[3] === 'create' ? JSON.stringify({ id: 't_existing', title: validActionItem.title, status: 'blocked' }) : '',
+      stderr: '',
+      exitCode: 0,
+    }));
+    const filePath = writeTempJson(validActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: loadConfig({ env: {}, configPath: null, overrides: { defaultAssignee: 'default' } }),
+      hermesRunner: runner,
     });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.mock.calls.map(([request]) => request.args[3])).toEqual(['create', 'assign']);
+    expect(runner.mock.calls.at(1)?.[0].args).toEqual(['kanban', '--board', 'keryx', 'assign', 't_existing', 'default']);
   });
 
   it('rejects invalid action-item JSON before calling Hermes', async () => {

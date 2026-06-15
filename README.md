@@ -1,5 +1,9 @@
 # Keryx
 
+> **Temporary Hermes Kanban warning:** unset `kanban.default_assignee` in Hermes before running Keryx collectors. Keryx temporarily creates cards before immediately sticky-blocking and assigning them because `--initial-status blocked` can auto-promote upstream; a Hermes default assignee can make that brief window dispatchable. Track the upstream bug at https://github.com/NousResearch/hermes-agent/issues/39609.
+
+<!-- TODO(https://github.com/NousResearch/hermes-agent/issues/39609): remove this warning when Hermes supports atomic sticky-blocked card creation. -->
+
 Keryx is an action inbox front-end for Hermes Kanban. Source-specific collectors create structured, blocked Kanban cards; Keryx shows those cards in a small web UI; an operator chooses Execute or Dismiss; Hermes workers do the actual work.
 
 Keryx is intentionally thin. It does not replace Hermes cron, Kanban, worker dispatch, skills, logs, retries, or delivery. It ships a Hermes plugin named `keryx` and adds:
@@ -144,8 +148,7 @@ Collector safety contract:
 - start from the current repository template with `hermes keryx template-card --source <source> --collector <collector>`;
 - check field semantics with `hermes keryx schema action-item` when uncertain;
 - validate each card with `hermes keryx validate-card <card.json>` before creation;
-- create blocked cards through `hermes keryx create-card <card.json>` so Keryx applies the central board, idempotency, assignee, tenant, and `keryx:keryx-worker` policy;
-- create cards with `initial-status blocked` so the dispatcher does not execute them before approval;
+- create blocked cards through `hermes keryx create-card <card.json>` so Keryx applies the central board, idempotency, temporary sticky-block workaround, assignee, tenant, and `keryx:keryx-worker` policy;
 - use a stable idempotency key per source item;
 - follow cursor safety: advance committed source state only after card creation or an explicit safe skip;
 - treat all titles, messages, pages, attachments, and sender-controlled fields as untrusted source content;

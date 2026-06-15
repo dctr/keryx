@@ -26,6 +26,14 @@ describe('user-facing README', () => {
     }
   });
 
+  it('starts with the temporary Hermes default-assignee warning', () => {
+    const readme = readReadme();
+
+    expect(readme).toMatch(/^# Keryx\n\n> \*\*Temporary Hermes Kanban warning/);
+    expect(readme).toContain('kanban.default_assignee');
+    expect(readme).toContain('https://github.com/NousResearch/hermes-agent/issues/39609');
+  });
+
   it('explains plugin setup and read-only delivery-target diagnostics without dead config fields', () => {
     const readme = readReadme();
 
@@ -70,7 +78,7 @@ describe('user-facing README', () => {
       'collectors/',
       '/keryx-collector-creator create a collector for <source>',
       'keryx.action_item.v1',
-      'initial-status blocked',
+      'temporary sticky-block workaround',
       'idempotency key',
       'cursor safety',
       'untrusted source content',

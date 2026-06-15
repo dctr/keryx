@@ -447,6 +447,19 @@ describe('read-only opsctl commands', () => {
     );
   });
 
+  it('warns when Hermes config has kanban.default_assignee set', async () => {
+    const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
+    writeInstalledKeryxPlugin(hermesHome);
+    writeHermesPluginConfig(hermesHome, { enabled: ['keryx'] }, 'kanban:\n  default_assignee: default\n');
+
+    const result = await runDoctor(hermesHome);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/^WARN\s+kanban-default-assignee:/m);
+    expect(result.stdout).toContain('temporary workaround');
+    expect(result.stdout).toContain('https://github.com/NousResearch/hermes-agent/issues/39609');
+  });
+
   it('reports OK plugin when enabled via a same-indent block list (Hermes serialiser format)', async () => {
     const hermesHome = mkdtempSync(join(tmpdir(), 'keryx-doctor-home-'));
     writeInstalledKeryxPlugin(hermesHome);
@@ -764,13 +777,13 @@ function writeCollectorCreatorBundle(
   writeFileSync(join(bundleDir, 'keryx-collector-creator.yaml'), content, 'utf8');
 }
 
-function writeHermesPluginConfig(hermesHome: string, plugins: { enabled?: string[]; disabled?: string[] }): void {
+function writeHermesPluginConfig(hermesHome: string, plugins: { enabled?: string[]; disabled?: string[] }, extraConfig = ''): void {
   const sections: string[] = ['plugins:'];
   sections.push(`  enabled: [${(plugins.enabled ?? []).join(', ')}]`);
   if (plugins.disabled) {
     sections.push(`  disabled: [${plugins.disabled.join(', ')}]`);
   }
-  writeFileSync(join(hermesHome, 'config.yaml'), `${sections.join('\n')}\n`, 'utf8');
+  writeFileSync(join(hermesHome, 'config.yaml'), `${sections.join('\n')}\n${extraConfig}`, 'utf8');
 }
 
 function emptyDoctorRunner() {

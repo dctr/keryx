@@ -464,6 +464,7 @@ async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, options: D
   const pluginCheck = checkInstalledPlugin(hermesHome);
   lines.push(pluginCheck);
   lines.push(checkCollectorCreatorBundle(hermesHome));
+  lines.push(checkKanbanDefaultAssignee(hermesHome));
 
   if (hasInstalledDependencies(PROJECT_ROOT)) {
     lines.push({ level: 'OK', check: 'dependencies', message: 'project dependencies installed' });
@@ -633,6 +634,39 @@ function checkCollectorCreatorBundle(hermesHome: string): DoctorLine {
   };
 }
 
+function checkKanbanDefaultAssignee(hermesHome: string): DoctorLine {
+  const defaultAssignee = readHermesKanbanDefaultAssignee(hermesHome);
+  if (!defaultAssignee) {
+    return { level: 'OK', check: 'kanban-default-assignee', message: 'not set' };
+  }
+
+  // TODO(https://github.com/NousResearch/hermes-agent/issues/39609): remove this
+  // warning when Keryx can return to atomic sticky-blocked creation through Hermes.
+  return {
+    level: 'WARN',
+    check: 'kanban-default-assignee',
+    message:
+      `kanban.default_assignee=${defaultAssignee}; unset it as a temporary workaround for ` +
+      'Hermes issue https://github.com/NousResearch/hermes-agent/issues/39609 because Keryx briefly creates cards before sticky-blocking them',
+  };
+}
+
+function readHermesKanbanDefaultAssignee(hermesHome: string): string | null {
+  let text: string;
+  try {
+    text = readFileSync(join(hermesHome, 'config.yaml'), 'utf8');
+  } catch {
+    return null;
+  }
+
+  const kanbanBlock = extractTopLevelBlock(text, 'kanban');
+  if (kanbanBlock.length === 0) {
+    return null;
+  }
+
+  return extractStringScalar(kanbanBlock, 'default_assignee');
+}
+
 interface PluginEnablement {
   enabled: string[];
   disabled: string[];
@@ -726,6 +760,18 @@ function extractStringList(block: string[], key: string): string[] {
     }
   }
   return items;
+}
+
+function extractStringScalar(block: string[], key: string): string | null {
+  const keyLine = block.find((line) => new RegExp(`^\\s*${key}:\\s*`).test(line));
+  if (!keyLine) {
+    return null;
+  }
+  const value = stripInlineComment(keyLine.replace(new RegExp(`^\\s*${key}:\\s*`), '')).trim();
+  if (!value || value === 'null' || value === '~') {
+    return null;
+  }
+  return unquote(value);
 }
 
 function parseFlowList(value: string): string[] {

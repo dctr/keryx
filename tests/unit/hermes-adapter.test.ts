@@ -74,8 +74,6 @@ describe('Hermes CLI adapter', () => {
       'Support request: account access needs review',
       '--body',
       '{"schema":"keryx.action_item.v1"}',
-      '--assignee',
-      'default',
       '--tenant',
       'email',
       '--idempotency-key',
@@ -84,14 +82,18 @@ describe('Hermes CLI adapter', () => {
       'keryx-email',
       '--skill',
       'keryx:keryx-worker',
-      '--initial-status',
-      'blocked',
       '--json',
     ];
+    const allowedBlockArgs = ['kanban', '--board', 'keryx', 'block', 't_created', 'approval-required: waiting for Keryx'];
+    const allowedAssignArgs = ['kanban', '--board', 'keryx', 'assign', 't_created', 'default'];
 
     expect(() => assertAllowedHermesArgs(allowedCreateArgs)).not.toThrow();
-    expect(() => assertAllowedHermesArgs(replaceArg(allowedCreateArgs, 16, 'keryx-worker'))).toThrow(/not allowlisted/i);
-    expect(() => assertAllowedHermesArgs(replaceArg(allowedCreateArgs, 18, 'ready'))).toThrow(/not allowlisted/i);
+    expect(() => assertAllowedHermesArgs(allowedBlockArgs)).not.toThrow();
+    expect(() => assertAllowedHermesArgs(allowedAssignArgs)).not.toThrow();
+    expect(() => assertAllowedHermesArgs(replaceArg(allowedCreateArgs, 14, 'keryx-worker'))).toThrow(/not allowlisted/i);
+    expect(() => assertAllowedHermesArgs([...allowedCreateArgs.slice(0, -1), '--initial-status', 'blocked', '--json'])).toThrow(
+      /not allowlisted/i,
+    );
     expect(() => assertAllowedHermesArgs([...allowedCreateArgs.slice(0, -1), '--priority', '10', '--json'])).toThrow(
       /not allowlisted/i,
     );

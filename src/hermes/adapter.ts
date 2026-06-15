@@ -44,7 +44,10 @@ export class HermesCliAdapter {
   }
 
   async createTaskFromActionItem(actionItem: ActionItem): Promise<unknown> {
-    return parseJson(
+    // TODO(https://github.com/NousResearch/hermes-agent/issues/39609): replace this
+    // create→block→assign workaround with atomic sticky-blocked creation once Hermes
+    // `--initial-status blocked` no longer auto-promotes.
+    const created = parseJson(
       await this.run([
         'kanban',
         '--board',
@@ -53,8 +56,6 @@ export class HermesCliAdapter {
         actionItem.title,
         '--body',
         JSON.stringify(actionItem),
-        '--assignee',
-        this.config.defaultAssignee,
         '--tenant',
         actionItem.source,
         '--idempotency-key',
@@ -63,11 +64,23 @@ export class HermesCliAdapter {
         actionItem.collector,
         '--skill',
         'keryx:keryx-worker',
-        '--initial-status',
-        'blocked',
         '--json',
       ]),
     );
+    const taskId = extractCreatedTaskId(created);
+    if (!createdTaskAlreadyBlocked(created)) {
+      await this.blockTask(taskId, 'approval-required: Keryx candidate awaiting user decision');
+    }
+    await this.assignTask(taskId, this.config.defaultAssignee);
+    return created;
+  }
+
+  async blockTask(taskId: string, reason: string): Promise<unknown> {
+    return this.run(['kanban', '--board', this.config.board, 'block', taskId, reason]);
+  }
+
+  async assignTask(taskId: string, assignee: string): Promise<unknown> {
+    return this.run(['kanban', '--board', this.config.board, 'assign', taskId, assignee]);
   }
 
   async commentTask(taskId: string, body: string): Promise<unknown> {
@@ -146,6 +159,10 @@ function isAllowedKanbanArgs(args: readonly string[]): boolean {
       return rest.length === 2 && isNonEmptyString(rest[0]) && rest[1] === '--json';
     case 'create':
       return isAllowedKanbanCreateRest(rest);
+    case 'block':
+      return rest.length === 2 && isNonEmptyString(rest[0]) && isNonEmptyString(rest[1]);
+    case 'assign':
+      return rest.length === 2 && isNonEmptyString(rest[0]) && isNonEmptyString(rest[1]);
     case 'promote':
       return rest.length === 3 && isNonEmptyString(rest[0]) && isNonEmptyString(rest[1]) && rest[2] === '--json';
     case 'comment':
@@ -175,24 +192,36 @@ function isAllowedKanbanListRest(rest: readonly string[]): boolean {
 
 function isAllowedKanbanCreateRest(rest: readonly string[]): boolean {
   return (
-    rest.length === 16 &&
+    rest.length === 12 &&
     isNonEmptyString(rest[0]) &&
     rest[1] === '--body' &&
     isNonEmptyString(rest[2]) &&
-    rest[3] === '--assignee' &&
+    rest[3] === '--tenant' &&
     isNonEmptyString(rest[4]) &&
-    rest[5] === '--tenant' &&
+    rest[5] === '--idempotency-key' &&
     isNonEmptyString(rest[6]) &&
-    rest[7] === '--idempotency-key' &&
+    rest[7] === '--created-by' &&
     isNonEmptyString(rest[8]) &&
-    rest[9] === '--created-by' &&
-    isNonEmptyString(rest[10]) &&
-    rest[11] === '--skill' &&
-    rest[12] === 'keryx:keryx-worker' &&
-    rest[13] === '--initial-status' &&
-    rest[14] === 'blocked' &&
-    rest[15] === '--json'
+    rest[9] === '--skill' &&
+    rest[10] === 'keryx:keryx-worker' &&
+    rest[11] === '--json'
   );
+}
+
+function extractCreatedTaskId(created: unknown): string {
+  if (isPlainObject(created)) {
+    for (const key of ['id', 'task_id']) {
+      const value = created[key];
+      if (isNonEmptyString(value)) {
+        return value;
+      }
+    }
+  }
+  throw new Error('Hermes Kanban create JSON did not contain a task id');
+}
+
+function createdTaskAlreadyBlocked(created: unknown): boolean {
+  return isPlainObject(created) && created.status === 'blocked';
 }
 
 function isAllowedSendArgs(args: readonly string[]): boolean {
