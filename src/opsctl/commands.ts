@@ -21,7 +21,7 @@ import { outcomeSchema, validateOutcome } from '../schemas/outcome';
 import type { Outcome } from '../schemas/outcome';
 import { policySchema, type Policy, type PolicyRule, validatePolicy } from '../schemas/policy';
 import { policyDecisionSchema, type PolicyDecision, validatePolicyDecision } from '../schemas/policyDecision';
-import { regretSchema } from '../schemas/regret';
+import { regretSchema, validateRegret } from '../schemas/regret';
 import {
   type CommandResult,
   type CronJobSummary,
@@ -83,10 +83,14 @@ Mutating commands:
                                   Render the relevancy-grouped digest of silent outcomes (--preview only for now)
   metrics [--window <range>] [--json]
                                   Report attention-economics metrics derived from the Kanban audit trail
+  regret <task_id> --kind <should_have_acted|should_have_asked> [--note <text>]
+                                  Record an escalation-regret signal on a card (feeds confidence bands)
   policy show <collector> [--json]
                                   Show a collector's active/shadow rules and derived track-record bands
   policy validate <file>          Validate a collector policy JSON document
   policy propose <file>           Create a human-approval card that writes a proposed policy rule
+  policy revoke <collector> --rule <id>
+                                  Create a human-approval card that removes an existing policy rule
 
 Global options:
   --help, -h                     Show this help
@@ -197,6 +201,8 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
         return digest(parsed, adapter);
       case 'metrics':
         return metrics(parsed, adapter, options.now ?? (() => new Date()));
+      case 'regret':
+        return regretCard(parsed, adapter, options.now ?? (() => new Date()));
       case 'policy':
         return await policyCommand(parsed, adapter, options, options.now ?? (() => new Date()));
       case 'doctor':
@@ -799,6 +805,46 @@ function parseMetricsWindow(
   return { ok: true, value: { from: new Date(now().getTime() - span) } };
 }
 
+// `regret <task_id> --kind ...` (PRD §7.9): records a one-click escalation-regret signal
+// as a validated keryx.regret.v1 comment on a card. This is the highest-severity feedback
+// for confidence: a regret caps the class's band (see deriveBand) and can trigger demotion
+// of an active rule. It only appends a comment — it never changes the card's status.
+async function regretCard(parsed: ParsedArgs, adapter: HermesCliAdapter, now: () => Date): Promise<CommandResult> {
+  const taskId = parsed.positionals[0];
+  if (!taskId) {
+    return fail('FAIL regret requires a task id', 2);
+  }
+
+  const idError = validateTaskIdArgument(taskId);
+  if (idError) {
+    return idError;
+  }
+
+  const kind = stringFlag(parsed, 'kind');
+  if (kind !== 'should_have_acted' && kind !== 'should_have_asked') {
+    return fail('FAIL regret --kind must be should_have_acted or should_have_asked', 2);
+  }
+
+  const note = stringFlag(parsed, 'note') ?? null;
+  const regret = {
+    schema: 'keryx.regret.v1' as const,
+    kind,
+    note,
+    recorded_by: 'User',
+    recorded_at: now().toISOString(),
+  };
+
+  // Re-validate against the schema before writing so a malformed comment can never reach
+  // the audit trail (mirrors execute/dismiss building validated comment bodies).
+  const validation = validateRegret(regret);
+  if (!validation.ok) {
+    return fail(`FAIL generated regret comment is invalid\n${formatValidationErrors(validation.errors)}`);
+  }
+
+  await adapter.commentTask(taskId, JSON.stringify(regret));
+  return ok(json({ ok: true, task_id: taskId, kind, action: 'recorded' }));
+}
+
 // `policy` subcommands (PRD §7.7): inspect a collector's human-approved rule store and
 // the track-record bands derived from the live Kanban audit trail, validate a policy
 // document, or propose a new rule via a human-approval suggestion card.
@@ -816,8 +862,10 @@ async function policyCommand(
       return policyValidate(parsed.positionals[1]);
     case 'propose':
       return policyPropose(parsed.positionals[1], adapter, now);
+    case 'revoke':
+      return policyRevoke(parsed, adapter, options, now);
     default:
-      return fail('FAIL policy requires one of: show, validate, propose', 2);
+      return fail('FAIL policy requires one of: show, validate, propose, revoke', 2);
   }
 }
 
@@ -998,6 +1046,93 @@ function buildPolicyProposalCard(policy: Policy, rule: PolicyRule, now: () => Da
       },
     ],
     ui: { primary_option_id: 'approve_rule', display_group: 'Policy proposals' },
+    created_at: now().toISOString(),
+  };
+}
+
+// `policy revoke <collector> --rule <id>` (PRD §7.7, §9): revocation is itself an auditable
+// human-approved change. Rather than silently editing the policy file, this creates a blocked
+// suggestion card whose approved option removes the named rule from the collector's policy.
+async function policyRevoke(
+  parsed: ParsedArgs,
+  adapter: HermesCliAdapter,
+  options: RunOpsctlOptions,
+  now: () => Date,
+): Promise<CommandResult> {
+  const collector = parsed.positionals[1];
+  if (!collector) {
+    return fail('FAIL policy revoke requires a collector (e.g. keryx-email)', 2);
+  }
+
+  const ruleId = stringFlag(parsed, 'rule');
+  if (!ruleId) {
+    return fail('FAIL policy revoke requires --rule <id>', 2);
+  }
+
+  const loaded = loadPolicy(collector, { hermesHome: options.config?.hermesHome, env: options.env, now: options.now });
+  if (!loaded.ok) {
+    return fail(`FAIL invalid policy: ${loaded.path}\n${formatValidationErrors(loaded.errors)}`);
+  }
+
+  const rule = loaded.policy.rules.find((candidate) => candidate.id === ruleId);
+  if (!rule) {
+    return fail(`FAIL policy revoke: no rule ${ruleId} in ${loaded.policy.collector}'s policy`);
+  }
+
+  const card = buildPolicyRevocationCard(loaded.policy.collector, rule, now);
+  const cardValidation = validateActionItem(card);
+  if (!cardValidation.ok) {
+    return fail(`FAIL generated policy-revocation card is invalid\n${formatValidationErrors(cardValidation.errors)}`);
+  }
+
+  return ok(json(await adapter.createTaskFromActionItem(card)));
+}
+
+function buildPolicyRevocationCard(collector: string, rule: PolicyRule, now: () => Date): ActionItem {
+  const source = collectorSource(collector);
+  return {
+    schema: 'keryx.action_item.v2',
+    source,
+    collector,
+    class: 'policy:rule-revocation',
+    external_id: `policy-revocation:${collector}:${rule.id}`,
+    idempotency_key: `keryx:policy-revocation:${collector}:${rule.id}`,
+    origin_descriptor: `Policy revocation for ${collector}`,
+    title: `Revoke ${rule.disposition} rule ${rule.id} (${rule.class}) on ${collector}`,
+    summary:
+      `Revoke rule ${rule.id} for class ${rule.class} on ${collector} (currently ${rule.state}). ` +
+      `Approving removes the rule from references/policy.json; dismissing keeps it.`,
+    urgency: 'normal',
+    proposed_disposition: 'review',
+    deadline: null,
+    risk: 'Revoking a rule removes a standing autonomy grant. The class falls back to review-only handling.',
+    source_refs: [
+      {
+        type: 'policy-rule',
+        collector,
+        rule_id: rule.id,
+        class: rule.class,
+        state: rule.state,
+        disposition: rule.disposition,
+      },
+    ],
+    options: [
+      {
+        id: 'revoke_rule',
+        label: `Remove rule ${rule.id}`,
+        requires_input: false,
+        input_hint: null,
+        delivery: null,
+        reversibility: 'reversible',
+        blast_radius: 'self',
+        undo_prompt: `Re-add rule ${rule.id} to ${collector}'s references/policy.json (state=${rule.state}) to restore this grant.`,
+        execution_prompt:
+          `Load skill-creator and keryx:keryx-collector-creator, then remove the keryx.policy.v1 rule with id ${rule.id} ` +
+          `from ${collector}'s references/policy.json, bumping version and updated_at. Validate the resulting file with ` +
+          '`hermes keryx policy validate` before saving.',
+      },
+    ],
+    ui: { primary_option_id: 'revoke_rule', display_group: 'Policy proposals' },
     created_at: now().toISOString(),
   };
 }

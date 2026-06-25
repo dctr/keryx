@@ -122,10 +122,46 @@ test('renders the action inbox and sends execute/dismiss requests to the API', a
   await expect.poll(() => api.taskFetches, { timeout: 2_000 }).toBeGreaterThan(1);
 });
 
+test('inspects policy + metrics panels and records escalation regret', async ({ page }) => {
+  const api = await mockKeryxApi(page);
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Keryx' })).toBeVisible();
+
+  // Policy panel: choose a collector, load its rules, and propose a revocation.
+  const policyPanel = page.getByTestId('policy-panel');
+  await policyPanel.getByLabel('Policy collector').selectOption('keryx-email');
+  await policyPanel.getByRole('button', { name: 'Load policy' }).click();
+
+  const rule = page.getByTestId('policy-rule-r-001');
+  await expect(rule).toContainText('email:newsletter-unsubscribe');
+  await expect(rule).toContainText('Active');
+  await expect(rule).toContainText('trusted');
+
+  await page.getByTestId('revoke-rule-r-001').click();
+  expect(api.revokeRequests).toEqual([{ collector: 'keryx-email', body: { rule_id: 'r-001' } }]);
+
+  // Metrics panel: load and render the derived figures.
+  const metricsPanel = page.getByTestId('metrics-panel');
+  await metricsPanel.getByRole('button', { name: 'Load metrics' }).click();
+  await expect(page.getByTestId('metric-tasks')).toHaveText('12');
+  await expect(page.getByTestId('metric-silent')).toHaveText('4');
+  await expect(page.getByTestId('metric-override-rate')).toHaveText('14%');
+  await expect(page.getByTestId('metric-shadow-agreement')).toHaveText('80%');
+  await expect(page.getByTestId('metric-silent-failures')).toHaveText('1');
+
+  // Review-log regret control on a done card.
+  await page.getByRole('button', { name: /Review log/ }).click();
+  await page.getByTestId('regret-asked-t_done').click();
+  expect(api.regretRequests).toEqual([{ taskId: 't_done', body: { kind: 'should_have_asked' } }]);
+});
+
 async function mockKeryxApi(page: Page) {
   let tasks = fixtureTasks();
   const executeRequests: Array<{ taskId: string; body: unknown }> = [];
   const dismissRequests: Array<{ taskId: string; body: unknown }> = [];
+  const regretRequests: Array<{ taskId: string; body: unknown }> = [];
+  const revokeRequests: Array<{ collector: string; body: unknown }> = [];
   let taskFetches = 0;
 
   await page.route('**/api/tasks', async (route) => {
@@ -200,9 +236,88 @@ async function mockKeryxApi(page: Page) {
     });
   });
 
+  await page.route('**/api/tasks/*/regret', async (route) => {
+    const taskId = route.request().url().match(/\/api\/tasks\/([^/]+)\/regret$/)?.[1] ?? 'unknown';
+    const body = route.request().postDataJSON() as unknown;
+    regretRequests.push({ taskId, body });
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, task_id: taskId, kind: (body as { kind?: string }).kind ?? 'should_have_acted', action: 'recorded' }),
+    });
+  });
+
+  // Register the more specific revoke route before the generic policy GET so Playwright
+  // (which matches most-recently-registered first) routes /revoke to its own handler.
+  await page.route('**/api/policy/*', async (route) => {
+    const collector = route.request().url().match(/\/api\/policy\/([^/]+)$/)?.[1] ?? 'unknown';
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        collector,
+        exists: true,
+        version: 3,
+        rules: [
+          {
+            id: 'r-001',
+            class: 'email:newsletter-unsubscribe',
+            gate: { max_blast_radius: 'self', min_reversibility: 'reversible', min_confidence: 'trusted' },
+            disposition: 'silent',
+            result_delivery: 'digest',
+            state: 'active',
+            approved_by: 'User',
+            approved_at: '2026-06-25T09:00:00.000Z',
+            source_card_id: 'keryx-123',
+            scope_note: 'auto-handle one-click unsubscribes from known senders',
+          },
+        ],
+        track_record: {
+          'email:newsletter-unsubscribe': { approved: 5, overridden: 0, dismissed: 1, regret: 0, band: 'trusted' },
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/policy/*/revoke', async (route) => {
+    const collector = route.request().url().match(/\/api\/policy\/([^/]+)\/revoke$/)?.[1] ?? 'unknown';
+    const body = route.request().postDataJSON() as unknown;
+    revokeRequests.push({ collector, body });
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, task_id: 't_revoke', status: 'blocked', action: 'created' }),
+    });
+  });
+
+  await page.route('**/api/metrics**', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        window: { from: null, to: null },
+        counts: {
+          tasks: 12,
+          silentExecutions: 4,
+          shadowWouldHave: 2,
+          humanApprovals: 6,
+          overrides: 1,
+          dismissals: 2,
+          regrets: 1,
+          outcomes: 4,
+          interrupts: 0,
+        },
+        overrideRate: 0.14,
+        shadowAgreementRate: 0.8,
+        autonomousSafeCompletionRate: 0.75,
+        silentFailureCount: 1,
+        recoveryCost: 1,
+        escalationRegret: { should_have_acted: 0, should_have_asked: 1 },
+      }),
+    });
+  });
+
   return {
     executeRequests,
     dismissRequests,
+    regretRequests,
+    revokeRequests,
     get taskFetches() {
       return taskFetches;
     },

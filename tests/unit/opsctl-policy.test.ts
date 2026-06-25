@@ -202,3 +202,58 @@ describe('opsctl policy', () => {
     expect(result.stderr).toContain('FAIL policy requires one of');
   });
 });
+
+describe('opsctl policy revoke', () => {
+  function createRunner(): HermesRunner {
+    return vi.fn<HermesRunner>(async (request) => {
+      if (request.args[3] === 'create') {
+        return { stdout: JSON.stringify({ id: 't_revoke' }), stderr: '', exitCode: 0 };
+      }
+      if (['block', 'assign', 'comment'].includes(request.args[3])) {
+        return { stdout: '', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '{}', stderr: '', exitCode: 0 };
+    });
+  }
+
+  it('creates a blocked revocation card for an existing rule', async () => {
+    const home = homeWithPolicy(policyWithRule);
+    const runner = createRunner();
+    const result = await runOpsctl(['policy', 'revoke', 'keryx-email', '--rule', 'r-001'], {
+      config: loadConfig({ env: {}, configPath: null, overrides: { hermesHome: home } }),
+      hermesRunner: runner,
+      now: () => new Date('2026-06-26T09:00:00.000Z'),
+    });
+
+    expect(result.exitCode).toBe(0);
+    const createCall = (runner as ReturnType<typeof vi.fn>).mock.calls.find((call) => call[0].args[3] === 'create');
+    expect(createCall).toBeDefined();
+    const body = JSON.parse(createCall![0].args[6]);
+    expect(body).toMatchObject({
+      schema: 'keryx.action_item.v2',
+      class: 'policy:rule-revocation',
+    });
+    expect(body.idempotency_key).toBe('keryx:policy-revocation:keryx-email:r-001');
+    expect(body.options[0].execution_prompt).toContain('r-001');
+  });
+
+  it('fails when the rule id is not in the collector policy', async () => {
+    const home = homeWithPolicy(policyWithRule);
+    const result = await runOpsctl(['policy', 'revoke', 'keryx-email', '--rule', 'r-999'], {
+      config: loadConfig({ env: {}, configPath: null, overrides: { hermesHome: home } }),
+      hermesRunner: createRunner(),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('FAIL policy revoke: no rule r-999');
+  });
+
+  it('requires a collector and a --rule', async () => {
+    const noCollector = await runOpsctl(['policy', 'revoke'], { env: {}, configPath: null });
+    expect(noCollector.exitCode).toBe(2);
+    expect(noCollector.stderr).toContain('FAIL policy revoke requires a collector');
+
+    const noRule = await runOpsctl(['policy', 'revoke', 'keryx-email'], { env: {}, configPath: null });
+    expect(noRule.exitCode).toBe(2);
+    expect(noRule.stderr).toContain('FAIL policy revoke requires --rule');
+  });
+});

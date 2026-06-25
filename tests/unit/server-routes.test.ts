@@ -149,4 +149,158 @@ describe('server route wiring', () => {
       await server.close();
     }
   });
+
+  it('serves collector policy via opsctl policy show --json', async () => {
+    const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ collector: 'keryx-email', exists: true, rules: [], track_record: {} }),
+      stderr: '',
+    }));
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), runOpsctl });
+
+    try {
+      const response = await server.inject({ method: 'GET', url: '/api/policy/keryx-email' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.json()).toMatchObject({ collector: 'keryx-email', exists: true });
+      expect(runOpsctl).toHaveBeenCalledWith(
+        ['policy', 'show', 'keryx-email', '--json'],
+        expect.objectContaining({ config: expect.objectContaining({ board: 'keryx' }) }),
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects a policy collector with an unsafe name before opsctl is called', async () => {
+    const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({ exitCode: 0, stdout: '{}', stderr: '' }));
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), runOpsctl });
+
+    try {
+      const response = await server.inject({ method: 'GET', url: '/api/policy/-rf' });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ ok: false, error: { code: 'VALIDATION_ERROR' } });
+      expect(runOpsctl).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('serves metrics via opsctl metrics --json with an optional window', async () => {
+    const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ counts: { tasks: 3, silentExecutions: 1 } }),
+      stderr: '',
+    }));
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), runOpsctl });
+
+    try {
+      const response = await server.inject({ method: 'GET', url: '/api/metrics?window=7d' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.json()).toMatchObject({ counts: { tasks: 3 } });
+      expect(runOpsctl).toHaveBeenCalledWith(
+        ['metrics', '--window', '7d', '--json'],
+        expect.objectContaining({ config: expect.objectContaining({ board: 'keryx' }) }),
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('serves metrics without a window when none is supplied', async () => {
+    const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({ exitCode: 0, stdout: '{"counts":{}}', stderr: '' }));
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), runOpsctl });
+
+    try {
+      const response = await server.inject({ method: 'GET', url: '/api/metrics' });
+      expect(response.statusCode).toBe(200);
+      expect(runOpsctl).toHaveBeenCalledWith(['metrics', '--json'], expect.anything());
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('delegates policy revoke to opsctl', async () => {
+    const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ id: 't_revoke' }),
+      stderr: '',
+    }));
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), runOpsctl });
+
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/api/policy/keryx-email/revoke',
+        payload: { rule_id: 'r-001' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(runOpsctl).toHaveBeenCalledWith(
+        ['policy', 'revoke', 'keryx-email', '--rule', 'r-001'],
+        expect.objectContaining({ config: expect.objectContaining({ board: 'keryx' }) }),
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects policy revoke without a rule_id before opsctl is called', async () => {
+    const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({ exitCode: 0, stdout: '{}', stderr: '' }));
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), runOpsctl });
+
+    try {
+      const response = await server.inject({ method: 'POST', url: '/api/policy/keryx-email/revoke', payload: {} });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ ok: false, error: { code: 'VALIDATION_ERROR', message: 'rule_id must be a non-empty string' } });
+      expect(runOpsctl).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('delegates a regret signal to opsctl', async () => {
+    const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ ok: true, task_id: 't_1', kind: 'should_have_asked' }),
+      stderr: '',
+    }));
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), runOpsctl });
+
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/api/tasks/t_1/regret',
+        payload: { kind: 'should_have_asked', note: 'Too aggressive.' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(runOpsctl).toHaveBeenCalledWith(
+        ['regret', 't_1', '--kind', 'should_have_asked', '--note', 'Too aggressive.'],
+        expect.objectContaining({ config: expect.objectContaining({ board: 'keryx' }) }),
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects a regret with an invalid kind before opsctl is called', async () => {
+    const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({ exitCode: 0, stdout: '{}', stderr: '' }));
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), runOpsctl });
+
+    try {
+      const response = await server.inject({ method: 'POST', url: '/api/tasks/t_1/regret', payload: { kind: 'nope' } });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ ok: false, error: { code: 'VALIDATION_ERROR' } });
+      expect(runOpsctl).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
 });

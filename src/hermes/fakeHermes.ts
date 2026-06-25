@@ -40,6 +40,14 @@ export function createFakeHermes(options: FakeHermesOptions = {}): FakeHermes {
       return { stdout: 'Comment added.\n', stderr: '', exitCode: 0 };
     }
 
+    if (matches(request.args, ['kanban', '--board']) && request.args[3] === 'create') {
+      return ok({ id: 't_created', status: 'blocked' });
+    }
+
+    if (matches(request.args, ['kanban', '--board']) && ['block', 'assign'].includes(request.args[3])) {
+      return { stdout: '', stderr: '', exitCode: 0 };
+    }
+
     if (matches(request.args, ['kanban', '--board']) && request.args[3] === 'archive') {
       return { stdout: 'Archived 1 task.\n', stderr: '', exitCode: 0 };
     }

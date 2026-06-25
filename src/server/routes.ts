@@ -169,6 +169,92 @@ export function registerApiRoutes(server: FastifyInstance, options: RegisterApiR
     const result = await options.runOpsctl(argv, buildOpsctlOptions(options));
     return sendCommandResult(reply, result);
   });
+
+  // Escalation-regret signal (PRD §7.9): one-click feedback that feeds confidence bands.
+  server.post<{ Params: TaskParams }>('/api/tasks/:id/regret', async (request, reply) => {
+    noStore(reply);
+    const idCheck = validateTaskId(request.params.id);
+    if (!idCheck.ok) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', idCheck.message);
+    }
+
+    const body = requestBodyObject(request.body);
+    if (!body.ok) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', 'request body must be a JSON object');
+    }
+
+    const kind = body.value.kind;
+    if (kind !== 'should_have_acted' && kind !== 'should_have_asked') {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', 'kind must be should_have_acted or should_have_asked');
+    }
+
+    const note = optionalString(body.value.note, 'note');
+    if (!note.ok) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', note.message);
+    }
+
+    const argv = ['regret', request.params.id, '--kind', kind];
+    if (note.value) {
+      argv.push('--note', note.value);
+    }
+
+    const result = await options.runOpsctl(argv, buildOpsctlOptions(options));
+    return sendCommandResult(reply, result);
+  });
+
+  // Policy inspection (PRD §9): read a collector's active/shadow rules + derived bands.
+  server.get<{ Params: { collector: string } }>('/api/policy/:collector', async (request, reply) => {
+    noStore(reply);
+    const check = validateCollectorName(request.params.collector);
+    if (!check.ok) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', check.message);
+    }
+
+    const result = await options.runOpsctl(['policy', 'show', request.params.collector, '--json'], buildOpsctlOptions(options));
+    return sendCommandResult(reply, result);
+  });
+
+  // Policy revocation (PRD §9): auditable human-approved change — creates a revocation card.
+  server.post<{ Params: { collector: string } }>('/api/policy/:collector/revoke', async (request, reply) => {
+    noStore(reply);
+    const check = validateCollectorName(request.params.collector);
+    if (!check.ok) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', check.message);
+    }
+
+    const body = requestBodyObject(request.body);
+    if (!body.ok) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', 'request body must be a JSON object');
+    }
+
+    const ruleId = firstString(body.value.rule_id, body.value.rule);
+    if (!ruleId) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', 'rule_id must be a non-empty string');
+    }
+
+    const result = await options.runOpsctl(
+      ['policy', 'revoke', request.params.collector, '--rule', ruleId],
+      buildOpsctlOptions(options),
+    );
+    return sendCommandResult(reply, result);
+  });
+
+  // Attention-economics metrics (PRD §9, §11): derived read-only from the Kanban audit trail.
+  server.get<{ Querystring: { window?: string } }>('/api/metrics', async (request, reply) => {
+    noStore(reply);
+    const argv = ['metrics'];
+    const window = optionalString(request.query.window, 'window');
+    if (!window.ok) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', window.message);
+    }
+    if (window.value) {
+      argv.push('--window', window.value);
+    }
+    argv.push('--json');
+
+    const result = await options.runOpsctl(argv, buildOpsctlOptions(options));
+    return sendCommandResult(reply, result);
+  });
 }
 
 function noStore(reply: FastifyReply): void {
@@ -216,6 +302,15 @@ function requestBodyObject(value: unknown): { ok: true; value: Record<string, un
 function validateTaskId(id: string): { ok: true } | { ok: false; message: string } {
   if (id.trim().startsWith('-')) {
     return { ok: false, message: 'task id must not begin with "-"' };
+  }
+  return { ok: true };
+}
+
+// Restricts a policy collector path segment to the safe id charset so it cannot reach
+// the opsctl/Hermes argv as an option-lookalike or path-traversal token.
+function validateCollectorName(collector: string): { ok: true } | { ok: false; message: string } {
+  if (!/^[A-Za-z0-9_.:-]+$/.test(collector) || collector.startsWith('-')) {
+    return { ok: false, message: 'collector must match [A-Za-z0-9_.:-] and not begin with "-"' };
   }
   return { ok: true };
 }
