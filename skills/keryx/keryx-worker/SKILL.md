@@ -59,17 +59,23 @@ Choose exactly one completion outcome:
 3. If the selected option or trusted user feedback defines a different output path, use that path and do not also send a default Hermes gateway message; write the outcome and transition the card to `done`.
 4. On any error, block with the exact missing input or failure details.
 
-## Feedback-to-automation loop
+## Feedback-to-automation loop (structured policy proposals)
 
-The Keryx dashboard can send free-text `user_feedback` on the review path. Use it for the current execution, then decide whether it should improve future source handling.
+The Keryx dashboard can send free-text `user_feedback` on the review path. Use it for the current execution, then decide whether it should improve future handling. Generalised learning is now captured as **structured `keryx.policy.v1` rule proposals**, not prose edits to a collector `SKILL.md`.
 
 - Treat feedback as one-off when it depends on the specific source item, private context, a temporary circumstance, ambiguous wording, credentials, payment, destructive action, or a human relationship judgement.
 - Treat feedback as generic or capable of being generalised when it expresses a repeatable preference, threshold, routing rule, wording style, classification rule, or safe automation that could apply to future items from the same collector.
-- If the feedback is generic or can be generalised, create a separate blocked card on board `keryx` suggesting an update to the relevant source skill's automations list. That source skill is the created collector skill `keryx-collector-$SOURCE` living in Hermes' space (`$HERMES_HOME/skills/keryx-collector-$SOURCE/SKILL.md`), referenced unqualified — or the explicitly named external source skill if it is not a Keryx-created collector skill. Do not modify the skill directly from this worker run.
-- Create suggestion cards through `hermes keryx template-card`, `hermes keryx validate-card`, and `hermes keryx create-card` where available; use `./bin/opsctl ...` only as the direct repository fallback.
-- The suggestion card must validate as `keryx.action_item.v2`, use worker skill `keryx:keryx-worker`, and use a stable idempotency key such as `keryx:automation-suggestion:<source>:<stable-slug>` so repeated similar feedback does not create duplicates.
-- Include only the generalised automation, source/collector name, originating Keryx card ID, a short sanitised feedback quote if useful, proposed scope/conditions, and caveats. Do not persist raw source bodies or private details.
-- Give the suggestion card an option whose execution prompt tells the future worker to load `skill-creator`, inspect `keryx:keryx-collector-creator`, and update the created collector skill `keryx-collector-$SOURCE` in Hermes' space with the proposed automation after approval — or the explicitly named external source skill if it is not a Keryx-created collector skill. Operators can start broader collector redesign through `/keryx-collector-creator`; keep runtime worker cards on `keryx:keryx-worker`.
+- If the feedback is generic or can be generalised, do not edit any skill file directly. Instead draft a `keryx.policy.v1` rule for the card's `class` and propose it with `hermes keryx policy propose <file>` (or `./bin/opsctl policy propose <file>` as the direct repository fallback). `policy propose` validates the rule and creates a **blocked human-approval suggestion card**; approving that card is what writes the rule into the collector policy. No rule activates without that human approval.
+- Scope each proposed rule narrowly: one open `class` key, the two risk-axis gate bounds (`max_blast_radius`, `min_reversibility`), a `min_confidence` band, and `state: shadow` for any state-changing class so it validates in shadow mode before any active silent authority is granted. Money / destructive / credential-gated classes never propose `silent`.
+
+## Promotion / demotion proposals
+
+Confidence-graduated autonomy means a `class` climbs (cold → warming → trusted) as the user approves its proposals, and falls when regrets/overrides degrade its band (PRD §7.3, §13). Promotion is **proposed by the worker, never self-taken**.
+
+- When a class's derived track record crosses the **trusted** threshold and either has no covering rule or only a `shadow` rule, propose its promotion: a class with no rule gets a first `shadow` rule; a `shadow` rule that has proven stable (see the **shadow agreement rate** in `hermes keryx metrics`) is proposed `shadow → active`. Use `hermes keryx policy propose <file>` so the promotion lands as a blocked approval card the user approves.
+- When an `active` rule's class develops a regret or its band falls below trusted, propose **demotion** — revert the `active` rule to `shadow` — and note it for the digest. Demotion is a safety reversion: prefer proposing it promptly over leaving a degraded class silent.
+- The bands and crossing thresholds are derived from the Kanban audit trail, not from any card field, so a collector or source cannot inflate confidence. Inspect them with `hermes keryx policy show <collector>` and `hermes keryx metrics`.
+- Build proposal cards through `hermes keryx template-card`, `hermes keryx validate-card`, and the `policy propose` path; use `./bin/opsctl ...` only as the direct repository fallback. Each suggestion card must validate as `keryx.action_item.v2`, use worker skill `keryx:keryx-worker`, and use a stable idempotency key such as `keryx:policy-proposal:<source>:<class>:<target-state>` so repeated similar signals do not create duplicates. Include only the proposed rule, source/collector name, originating Keryx card ID, the derived band evidence, and caveats — never raw source bodies or private details.
 
 ## Handoff
 
