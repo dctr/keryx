@@ -14,6 +14,7 @@ import { dismissalDecisionSchema } from '../schemas/dismissalDecision';
 import { executionDecisionSchema, validateExecutionDecision } from '../schemas/executionDecision';
 import { notificationSchema } from '../schemas/notification';
 import { outcomeSchema } from '../schemas/outcome';
+import type { Outcome } from '../schemas/outcome';
 import { policySchema } from '../schemas/policy';
 import { policyDecisionSchema, type PolicyDecision } from '../schemas/policyDecision';
 import { regretSchema } from '../schemas/regret';
@@ -65,6 +66,7 @@ Read-only commands:
 
 Mutating commands:
   create-card <file>              Validate and create a blocked Keryx Kanban card
+  auto-execute <file>             Validate, derive disposition, and create a silent ready card (read_only only in Phase 3)
   execute <task_id> --option <id> [--feedback <text>] [--dispatch]
                                   Append the user's execution decision and promote a card
   dismiss <task_id> [--reason <text>]
@@ -153,6 +155,8 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
         return validateState(parsed.positionals[0]);
       case 'create-card':
         return await createCard(parsed.positionals[0], adapter, options.now ?? (() => new Date()));
+      case 'auto-execute':
+        return await autoExecute(parsed.positionals[0], adapter, options.now ?? (() => new Date()));
       case 'list':
         return listCards(parsed, adapter);
       case 'show':
@@ -304,24 +308,55 @@ async function createCard(filePath: string | undefined, adapter: HermesCliAdapte
     return fail('FAIL create-card requires a JSON file path', 2);
   }
 
-  const parsed = parseJsonFile(filePath);
-  const validation = validateActionItem(parsed);
+  const validation = validateActionItem(parseJsonFile(filePath));
   if (!validation.ok) {
     return fail(`FAIL invalid action card: ${filePath}\n${formatValidationErrors(validation.errors)}`);
   }
 
   const card = validation.value;
   const selected = selectedOptionFor(card);
-  // Phase 3: no policy store yet (passed null) and an empty track record (cold band).
-  // Only read_only options reach the silent disposition; everything else stays blocked.
-  const decision = decideDisposition(card, selected, deriveBand(emptyTrackRecord()), null);
+  const disposition = resolveDisposition(card, selected);
 
-  if (decision.disposition === 'silent') {
-    const policyDecision = buildPolicyDecision(card, selected, decision.rule_id, decision.reasons, now);
+  if (disposition.disposition === 'silent') {
+    const policyDecision = buildPolicyDecision(card, selected, disposition.rule_id, disposition.reasons, now);
     return ok(json(await adapter.createReadyTaskFromActionItem(card, policyDecision)));
   }
 
   return ok(json(await adapter.createTaskFromActionItem(card)));
+}
+
+// `auto-execute` is the creation+promotion entrypoint used by collectors/tests for a
+// card that must run silently. It validates, derives the disposition, and (only when
+// silent) creates the ready card plus its policy-decision comment. The Kanban worker —
+// not opsctl — performs the side effect and writes the keryx.outcome.v1 comment (§7.4).
+async function autoExecute(filePath: string | undefined, adapter: HermesCliAdapter, now: () => Date): Promise<CommandResult> {
+  if (!filePath) {
+    return fail('FAIL auto-execute requires a JSON file path', 2);
+  }
+
+  const validation = validateActionItem(parseJsonFile(filePath));
+  if (!validation.ok) {
+    return fail(`FAIL invalid action card: ${filePath}\n${formatValidationErrors(validation.errors)}`);
+  }
+
+  const card = validation.value;
+  const selected = selectedOptionFor(card);
+  const disposition = resolveDisposition(card, selected);
+
+  if (disposition.disposition !== 'silent') {
+    return fail(
+      `FAIL card ${card.idempotency_key} does not qualify for silent execution (disposition=${disposition.disposition}); use create-card for review`,
+    );
+  }
+
+  const policyDecision = buildPolicyDecision(card, selected, disposition.rule_id, disposition.reasons, now);
+  return ok(json(await adapter.createReadyTaskFromActionItem(card, policyDecision)));
+}
+
+// Phase 3: no policy store yet (passed null) and an empty track record (cold band).
+// Only read_only options reach the silent disposition; everything else stays blocked.
+function resolveDisposition(card: ActionItem, selected: ActionOption) {
+  return decideDisposition(card, selected, deriveBand(emptyTrackRecord()), null);
 }
 
 // Picks the option the disposition function reasons over: the collector-suggested
@@ -351,6 +386,32 @@ function buildPolicyDecision(
     approved_by: 'keryx-policy',
     approved_via: ruleId ? `policy:${ruleId}` : 'policy:read-only',
     approved_at: now().toISOString(),
+  };
+}
+
+export interface OutcomeInput {
+  executed_option_id: string;
+  result_summary: string;
+  result_delivery: Outcome['result_delivery'];
+  digest_category: string | null;
+  digest_cadence?: 'daily' | 'weekly';
+  changed_state: string | null;
+  delivered_via: string | null;
+}
+
+// Builds a keryx.outcome.v1 body a silent worker writes on completion. Exported so the
+// worker path and tests share one shape; the digest (Task 3.6) reads these comments.
+export function buildOutcome(input: OutcomeInput, now: () => Date = () => new Date()): Outcome {
+  return {
+    schema: 'keryx.outcome.v1',
+    executed_option_id: input.executed_option_id,
+    result_summary: input.result_summary,
+    result_delivery: input.result_delivery,
+    digest_category: input.digest_category,
+    ...(input.digest_cadence ? { digest_cadence: input.digest_cadence } : {}),
+    changed_state: input.changed_state,
+    delivered_via: input.delivered_via,
+    completed_at: now().toISOString(),
   };
 }
 
