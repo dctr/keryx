@@ -6,14 +6,16 @@ import { fileURLToPath } from 'node:url';
 import { type KeryxConfig, loadConfig } from '../config';
 import { HermesCliAdapter, parseHermesVersion } from '../hermes/adapter';
 import type { HermesRunner, KanbanTask } from '../hermes/types';
-import { actionItemSchema, type ActionItem, validateActionItem } from '../schemas/actionItem';
+import { deriveBand, type TrackRecord } from '../policy/confidence';
+import { decideDisposition } from '../policy/disposition';
+import { actionItemSchema, type ActionItem, type ActionOption, validateActionItem } from '../schemas/actionItem';
 import { collectorStateSchema, validateCollectorState } from '../schemas/collectorState';
 import { dismissalDecisionSchema } from '../schemas/dismissalDecision';
 import { executionDecisionSchema, validateExecutionDecision } from '../schemas/executionDecision';
 import { notificationSchema } from '../schemas/notification';
 import { outcomeSchema } from '../schemas/outcome';
 import { policySchema } from '../schemas/policy';
-import { policyDecisionSchema } from '../schemas/policyDecision';
+import { policyDecisionSchema, type PolicyDecision } from '../schemas/policyDecision';
 import { regretSchema } from '../schemas/regret';
 import {
   type CommandResult,
@@ -150,7 +152,7 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
       case 'validate-state':
         return validateState(parsed.positionals[0]);
       case 'create-card':
-        return await createCard(parsed.positionals[0], adapter);
+        return await createCard(parsed.positionals[0], adapter, options.now ?? (() => new Date()));
       case 'list':
         return listCards(parsed, adapter);
       case 'show':
@@ -297,7 +299,7 @@ function validateState(filePath: string | undefined): CommandResult {
   return ok(`OK valid collector state: ${validation.value.source}`);
 }
 
-async function createCard(filePath: string | undefined, adapter: HermesCliAdapter): Promise<CommandResult> {
+async function createCard(filePath: string | undefined, adapter: HermesCliAdapter, now: () => Date): Promise<CommandResult> {
   if (!filePath) {
     return fail('FAIL create-card requires a JSON file path', 2);
   }
@@ -308,7 +310,48 @@ async function createCard(filePath: string | undefined, adapter: HermesCliAdapte
     return fail(`FAIL invalid action card: ${filePath}\n${formatValidationErrors(validation.errors)}`);
   }
 
-  return ok(json(await adapter.createTaskFromActionItem(validation.value)));
+  const card = validation.value;
+  const selected = selectedOptionFor(card);
+  // Phase 3: no policy store yet (passed null) and an empty track record (cold band).
+  // Only read_only options reach the silent disposition; everything else stays blocked.
+  const decision = decideDisposition(card, selected, deriveBand(emptyTrackRecord()), null);
+
+  if (decision.disposition === 'silent') {
+    const policyDecision = buildPolicyDecision(card, selected, decision.rule_id, decision.reasons, now);
+    return ok(json(await adapter.createReadyTaskFromActionItem(card, policyDecision)));
+  }
+
+  return ok(json(await adapter.createTaskFromActionItem(card)));
+}
+
+// Picks the option the disposition function reasons over: the collector-suggested
+// primary if it resolves, otherwise the first option (mirrors the UI's selection).
+function selectedOptionFor(card: ActionItem): ActionOption {
+  const preferred = card.ui?.primary_option_id;
+  return card.options.find((option) => option.id === preferred) ?? card.options[0];
+}
+
+function emptyTrackRecord(): TrackRecord {
+  return { approved: 0, overridden: 0, dismissed: 0, regret: 0 };
+}
+
+function buildPolicyDecision(
+  card: ActionItem,
+  selected: ActionOption,
+  ruleId: string | null,
+  reasons: string[],
+  now: () => Date,
+): PolicyDecision {
+  return {
+    schema: 'keryx.policy_decision.v1',
+    selected_option_id: selected.id,
+    disposition: 'silent',
+    rule_id: ruleId,
+    reasons,
+    approved_by: 'keryx-policy',
+    approved_via: ruleId ? `policy:${ruleId}` : 'policy:read-only',
+    approved_at: now().toISOString(),
+  };
 }
 
 async function listCards(parsed: ParsedArgs, adapter: HermesCliAdapter): Promise<CommandResult> {

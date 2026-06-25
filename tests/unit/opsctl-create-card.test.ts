@@ -7,10 +7,31 @@ import { describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../src/config';
 import { runOpsctl } from '../../src/opsctl/commands';
 import { sampleActionItem } from '../helpers/sampleActionItem';
+import { validatePolicyDecision } from '../../src/schemas/policyDecision';
 import type { ActionItem } from '../../src/schemas/actionItem';
 import type { HermesRunner } from '../../src/hermes/types';
 
 const validActionItem: ActionItem = sampleActionItem();
+
+const readOnlyActionItem: ActionItem = sampleActionItem({
+  class: 'facebook:group-digest',
+  external_id: 'facebook:group:42',
+  idempotency_key: 'keryx:facebook:group:42',
+  options: [
+    {
+      id: 'summarise_group',
+      label: 'Summarise new group posts',
+      requires_input: false,
+      input_hint: null,
+      delivery: null,
+      reversibility: 'read_only',
+      blast_radius: 'self',
+      undo_prompt: null,
+      execution_prompt: 'Read the configured Facebook group and summarise new posts since the last run.',
+    },
+  ],
+  ui: { primary_option_id: 'summarise_group', display_group: 'Monitored' },
+});
 
 describe('opsctl create-card', () => {
   it('validates an action-item and creates a sticky-blocked Kanban card before assigning a worker', async () => {
@@ -79,6 +100,61 @@ describe('opsctl create-card', () => {
     expect(result.exitCode).toBe(0);
     expect(runner.mock.calls.map(([request]) => request.args[3])).toEqual(['create', 'assign']);
     expect(runner.mock.calls.at(1)?.[0].args).toEqual(['kanban', '--board', 'keryx', 'assign', 't_existing', 'default']);
+  });
+
+  it('routes a read_only+self card to a silent ready card with a policy-decision comment', async () => {
+    const runner = vi.fn<HermesRunner>(async (request) => ({
+      stdout:
+        request.args[3] === 'create'
+          ? JSON.stringify({ id: 't_readonly', title: readOnlyActionItem.title, status: 'blocked' })
+          : request.args[3] === 'promote'
+            ? JSON.stringify({ id: 't_readonly', status: 'ready' })
+            : '',
+      stderr: '',
+      exitCode: 0,
+    }));
+    const filePath = writeTempJson(readOnlyActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: loadConfig({ env: {}, configPath: null, overrides: { defaultAssignee: 'default' } }),
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe('');
+
+    const verbs = runner.mock.calls.map(([request]) => request.args[3]);
+    expect(verbs).toEqual(['create', 'comment', 'promote']);
+
+    const commentArgs = runner.mock.calls[1][0].args;
+    expect(commentArgs.slice(0, 5)).toEqual(['kanban', '--board', 'keryx', 'comment', 't_readonly']);
+    const decision = JSON.parse(commentArgs[5]) as unknown;
+    const validation = validatePolicyDecision(decision);
+    expect(validation.ok).toBe(true);
+    if (validation.ok) {
+      expect(validation.value.disposition).toBe('silent');
+      expect(validation.value.rule_id).toBeNull();
+      expect(validation.value.approved_via).toBe('policy:read-only');
+      expect(validation.value.selected_option_id).toBe('summarise_group');
+    }
+  });
+
+  it('routes a reversible card with no policy to a blocked review card', async () => {
+    const runner = vi.fn<HermesRunner>(async (request) => ({
+      stdout: request.args[3] === 'create' ? JSON.stringify({ id: 't_review', title: validActionItem.title, status: 'ready' }) : '',
+      stderr: '',
+      exitCode: 0,
+    }));
+    const filePath = writeTempJson(validActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: loadConfig({ env: {}, configPath: null, overrides: { defaultAssignee: 'default' } }),
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const verbs = runner.mock.calls.map(([request]) => request.args[3]);
+    expect(verbs).toEqual(['create', 'block', 'assign']);
   });
 
   it('rejects invalid action-item JSON before calling Hermes', async () => {
