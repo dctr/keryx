@@ -1,15 +1,12 @@
-import type { Autonomy } from '../../schemas/actionItem';
 import type { TaskCardView } from './taskView';
 import { sortTaskViews } from './taskView';
 
 export type TaskViewKey = 'inbox' | 'running' | 'completed' | 'dismissed';
 export type SourceFilter = 'all' | string;
-export type AutonomyFilter = 'all' | Autonomy;
 
 export interface TaskFilters {
   view: TaskViewKey;
   source: SourceFilter;
-  autonomy: AutonomyFilter;
   urgentOnly: boolean;
 }
 
@@ -20,14 +17,6 @@ export const viewOptions: Array<{ key: TaskViewKey; label: string; statuses: str
   { key: 'dismissed', label: 'Dismissed', statuses: ['archived'] },
 ];
 
-export const autonomyOptions: Array<{ value: AutonomyFilter; label: string }> = [
-  { value: 'all', label: 'All autonomy' },
-  { value: 'auto', label: 'Auto' },
-  { value: 'minimal', label: 'Needs input' },
-  { value: 'research', label: 'Research' },
-  { value: 'complex', label: 'Complex' },
-];
-
 export function applyTaskFilters(tasks: TaskCardView[], filters: TaskFilters): TaskCardView[] {
   return sortTaskViews(
     tasks.filter((task) => {
@@ -35,9 +24,6 @@ export function applyTaskFilters(tasks: TaskCardView[], filters: TaskFilters): T
         return false;
       }
       if (filters.source !== 'all' && task.source !== filters.source) {
-        return false;
-      }
-      if (filters.autonomy !== 'all' && task.autonomy !== filters.autonomy) {
         return false;
       }
       if (filters.urgentOnly && !isUrgentOrDeadlineSoon(task)) {

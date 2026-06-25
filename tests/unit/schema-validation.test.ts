@@ -8,6 +8,7 @@ import { validateNotification } from '../../src/schemas/notification';
 import { validateOutcome } from '../../src/schemas/outcome';
 import { validatePolicyDecision } from '../../src/schemas/policyDecision';
 import { validateRegret } from '../../src/schemas/regret';
+import { sampleActionItem } from '../helpers/sampleActionItem';
 import type { ActionItem } from '../../src/schemas/actionItem';
 import type { CollectorState } from '../../src/schemas/collectorState';
 import type { DismissalDecision } from '../../src/schemas/dismissalDecision';
@@ -17,44 +18,7 @@ import type { Outcome } from '../../src/schemas/outcome';
 import type { PolicyDecision } from '../../src/schemas/policyDecision';
 import type { Regret } from '../../src/schemas/regret';
 
-const validActionItem: ActionItem = {
-  schema: 'keryx.action_item.v1',
-  source: 'email',
-  collector: 'keryx-email',
-  external_id: 'support-inbox:INBOX:35680',
-  idempotency_key: 'keryx:email:support-inbox:INBOX:35680',
-  origin_descriptor: 'Support Desk — Account access request',
-  title: 'Support request: account access needs review',
-  summary: 'Customer reports that account access is failing after a recent change.',
-  autonomy: 'auto',
-  urgency: 'normal',
-  deadline: null,
-  risk: 'Support request may stall if ignored.',
-  source_refs: [
-    {
-      type: 'email',
-      account: 'support-inbox',
-      folder: 'INBOX',
-      uid: '35680',
-    },
-  ],
-  options: [
-    {
-      id: 'translate_forward_contact_archive',
-      label: 'Translate + forward to support contact + archive email',
-      requires_input: false,
-      input_hint: null,
-      delivery: null,
-      execution_prompt:
-        "Translate the support request into the target language, forward it to the configured support contact, then archive the source email.",
-    },
-  ],
-  ui: {
-    primary_option_id: 'translate_forward_contact_archive',
-    display_group: 'Needs approval',
-  },
-  created_at: '2026-05-31T00:00:00+10:00',
-};
+const validActionItem: ActionItem = sampleActionItem();
 
 const validExecutionDecision: ExecutionDecision = {
   schema: 'keryx.execution_decision.v1',
@@ -96,17 +60,23 @@ describe('Keryx schema validation', () => {
     }
   });
 
-  it('rejects an invalid autonomy value with a useful path', () => {
-    const result = validateActionItem({ ...validActionItem, autonomy: 'reckless' });
+  it('rejects an invalid urgency value with a useful path', () => {
+    const result = validateActionItem({ ...validActionItem, urgency: 'reckless' });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ path: '/autonomy', message: expect.stringContaining('must be equal to one of the allowed values') }),
+          expect.objectContaining({ path: '/urgency', message: expect.stringContaining('must be equal to one of the allowed values') }),
         ]),
       );
     }
+  });
+
+  it('rejects the removed v1 autonomy field via additionalProperties', () => {
+    const result = validateActionItem({ ...validActionItem, autonomy: 'auto' });
+
+    expect(result.ok).toBe(false);
   });
 
   it('rejects an option without an execution prompt', () => {

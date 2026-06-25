@@ -1,4 +1,4 @@
-import type { ActionItem, ActionOption, Autonomy, Urgency } from '../../schemas/actionItem';
+import type { ActionItem, ActionOption, BlastRadius, Reversibility, Urgency } from '../../schemas/actionItem';
 import type { ApiTask, MalformedTaskError } from './api';
 
 export interface TaskCardView {
@@ -10,8 +10,9 @@ export interface TaskCardView {
   source: string;
   sourceLabel: string;
   collector: string | null;
-  autonomy: Autonomy;
-  autonomyLabel: string;
+  class: string;
+  reversibility: Reversibility | null;
+  blastRadius: BlastRadius | null;
   urgency: Urgency;
   urgencyLabel: string;
   urgencyRank: number;
@@ -61,11 +62,11 @@ const URGENCY_RANKS: Record<Urgency, number> = {
   urgent: 4,
 };
 
-const AUTONOMY_LABELS: Record<Autonomy, string> = {
-  auto: 'Auto',
-  minimal: 'Needs input',
-  research: 'Research',
-  complex: 'Complex',
+const REVERSIBILITY_LABELS: Record<Reversibility, string> = {
+  read_only: 'Read-only',
+  reversible: 'Reversible',
+  compensable: 'Compensable',
+  irreversible: 'Irreversible',
 };
 
 export function mapTaskToView(task: ApiTask): TaskCardView {
@@ -83,8 +84,9 @@ export function mapTaskToView(task: ApiTask): TaskCardView {
     source: item.source,
     sourceLabel: sourceLabel(item.source),
     collector: task.created_by,
-    autonomy: item.autonomy,
-    autonomyLabel: autonomyLabelFor(item.autonomy),
+    class: item.class,
+    reversibility: primaryOption?.reversibility ?? null,
+    blastRadius: primaryOption?.blast_radius ?? null,
     urgency: item.urgency,
     urgencyLabel: urgencyLabelFor(item.urgency),
     urgencyRank: URGENCY_RANKS[item.urgency],
@@ -147,8 +149,8 @@ export function sourceLabel(source: string): string {
     .join(' ');
 }
 
-export function autonomyLabelFor(autonomy: Autonomy): string {
-  return AUTONOMY_LABELS[autonomy];
+export function reversibilityLabelFor(reversibility: Reversibility): string {
+  return REVERSIBILITY_LABELS[reversibility];
 }
 
 export function urgencyLabelFor(urgency: Urgency): string {

@@ -73,7 +73,7 @@ describe('Hermes CLI adapter', () => {
       'create',
       'Support request: account access needs review',
       '--body',
-      '{"schema":"keryx.action_item.v1"}',
+      '{"schema":"keryx.action_item.v2"}',
       '--tenant',
       'email',
       '--idempotency-key',

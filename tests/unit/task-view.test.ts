@@ -3,21 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { ActionItem } from '../../src/schemas/actionItem';
 import type { ApiTask, MalformedTaskError } from '../../src/web/lib/api';
 import { mapMalformedTaskError, mapTaskToView, sortTaskViews, statusLabelFor } from '../../src/web/lib/taskView';
+import { sampleActionItem } from '../helpers/sampleActionItem';
 
-const baseActionItem: ActionItem = {
-  schema: 'keryx.action_item.v1',
-  source: 'email',
-  collector: 'keryx-email',
-  external_id: 'support-inbox:INBOX:35680',
-  idempotency_key: 'keryx:email:support-inbox:INBOX:35680',
-  origin_descriptor: 'Support Desk — Account access request',
-  title: 'Support request: account access needs review',
-  summary: 'Customer reports that account access is failing after a recent change.',
-  autonomy: 'auto',
-  urgency: 'normal',
-  deadline: null,
-  risk: 'Support request may stall if ignored.',
-  source_refs: [{ type: 'email', account: 'support-inbox', folder: 'INBOX', uid: '35680' }],
+const baseActionItem: ActionItem = sampleActionItem({
   options: [
     {
       id: 'translate_forward_contact_archive',
@@ -25,6 +13,9 @@ const baseActionItem: ActionItem = {
       requires_input: false,
       input_hint: null,
       delivery: null,
+      reversibility: 'reversible',
+      blast_radius: 'external',
+      undo_prompt: 'Restore the archived email and retract the forward.',
       execution_prompt:
         "Translate the support request into the target language, forward it to the configured support contact, then archive the source email.",
     },
@@ -34,12 +25,14 @@ const baseActionItem: ActionItem = {
       requires_input: true,
       input_hint: 'Add the tone you want.',
       delivery: 'default',
+      reversibility: 'reversible',
+      blast_radius: 'self',
+      undo_prompt: 'Delete the drafted reply before it is sent.',
       execution_prompt: 'Draft a concise reply and deliver it to the configured Keryx channel.',
     },
   ],
   ui: { primary_option_id: 'reply_only', display_group: 'Needs input' },
-  created_at: '2026-05-31T00:00:00+10:00',
-};
+});
 
 describe('task view mapping', () => {
   it('maps Kanban statuses to compact user-facing labels', () => {

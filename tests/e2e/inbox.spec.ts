@@ -11,15 +11,15 @@ interface ApiTask {
 }
 
 interface ActionItem {
-  schema: 'keryx.action_item.v1';
+  schema: 'keryx.action_item.v2';
   source: string;
   collector: string;
+  class: string;
   external_id: string;
   idempotency_key: string;
   origin_descriptor: string;
   title: string;
   summary: string;
-  autonomy: 'auto' | 'minimal' | 'research' | 'complex';
   urgency: 'low' | 'normal' | 'soon' | 'urgent';
   deadline: string | null;
   risk: string | null;
@@ -30,6 +30,9 @@ interface ActionItem {
     requires_input: boolean;
     input_hint: string | null;
     delivery: string | null;
+    reversibility: 'read_only' | 'reversible' | 'compensable' | 'irreversible';
+    blast_radius: 'self' | 'external';
+    undo_prompt?: string | null;
     execution_prompt: string;
   }>;
   ui?: { primary_option_id?: string; display_group?: string };
@@ -216,10 +219,10 @@ function fixtureTasks(): ApiTask[] {
     task('t_email', 'blocked', {
       source: 'email',
       collector: 'keryx-email',
+      class: 'email:support-request',
       title: 'Support request: account access needs review',
       summary: 'Customer reports that account access is failing after a recent change.',
       origin_descriptor: 'Support Desk — Account access request',
-      autonomy: 'auto',
       urgency: 'normal',
       risk: 'Support request may stall if ignored.',
       options: [
@@ -229,6 +232,9 @@ function fixtureTasks(): ApiTask[] {
           requires_input: false,
           input_hint: null,
           delivery: null,
+          reversibility: 'reversible',
+          blast_radius: 'external',
+          undo_prompt: 'Restore the archived email and retract the forward.',
           execution_prompt: "Translate the support request into the target language, forward it to the configured support contact, then archive the source email.",
         },
       ],
@@ -237,10 +243,10 @@ function fixtureTasks(): ApiTask[] {
     task('t_workshop', 'blocked', {
       source: 'events',
       collector: 'keryx-events',
+      class: 'events:workshop-booking',
       title: 'Workshop booking opportunity',
       summary: 'A community workshop appears to have dates available.',
       origin_descriptor: 'Events feed — Workshop schedule announcement',
-      autonomy: 'minimal',
       urgency: 'soon',
       risk: 'Tickets may sell out.',
       options: [
@@ -250,6 +256,9 @@ function fixtureTasks(): ApiTask[] {
           requires_input: true,
           input_hint: 'Type the date you want to book for.',
           delivery: null,
+          reversibility: 'irreversible',
+          blast_radius: 'external',
+          undo_prompt: null,
           execution_prompt: 'Open the booking flow in the visible GUI browser and stop at payment/private input.',
         },
       ],
@@ -258,10 +267,10 @@ function fixtureTasks(): ApiTask[] {
     task('t_calendar', 'ready', {
       source: 'calendar',
       collector: 'keryx-calendar',
+      class: 'calendar:venue-planning',
       title: 'Plan venue options for team planning session',
       summary: 'Calendar event has time but no venue logistics.',
       origin_descriptor: 'Mon 1 Jun, 6:30 pm — Team planning session',
-      autonomy: 'research',
       urgency: 'soon',
       deadline: '2026-06-01T18:30:00+10:00',
       risk: 'Leaving it unplanned creates avoidable friction.',
@@ -269,20 +278,20 @@ function fixtureTasks(): ApiTask[] {
     task('t_done', 'done', {
       source: 'notion',
       collector: 'keryx-notion',
+      class: 'notion:reminder',
       title: 'Renew passport reminder',
       summary: 'Passport renewal reminder has been handled.',
       origin_descriptor: 'Notion — admin list',
-      autonomy: 'auto',
       urgency: 'low',
       risk: null,
     }),
     task('t_archived', 'archived', {
       source: 'events',
       collector: 'keryx-events',
+      class: 'events:listing',
       title: 'Old workshop listing',
       summary: 'Archived old event listing.',
       origin_descriptor: 'Events feed — old listing',
-      autonomy: 'auto',
       urgency: 'low',
       risk: null,
     }),
@@ -292,15 +301,15 @@ function fixtureTasks(): ApiTask[] {
 function task(id: string, status: string, overrides: Partial<ActionItem>): ApiTask {
   const source = overrides.source ?? 'email';
   const item: ActionItem = {
-    schema: 'keryx.action_item.v1',
+    schema: 'keryx.action_item.v2',
     source,
     collector: overrides.collector ?? `keryx-${source}`,
+    class: overrides.class ?? `${source}:example`,
     external_id: `${source}:${id}`,
     idempotency_key: `keryx:${source}:${id}`,
     origin_descriptor: overrides.origin_descriptor ?? `${source} origin`,
     title: overrides.title ?? `${source} task`,
     summary: overrides.summary ?? `${source} summary`,
-    autonomy: overrides.autonomy ?? 'auto',
     urgency: overrides.urgency ?? 'normal',
     deadline: overrides.deadline ?? null,
     risk: overrides.risk ?? null,
@@ -314,6 +323,9 @@ function task(id: string, status: string, overrides: Partial<ActionItem>): ApiTa
           requires_input: false,
           input_hint: null,
           delivery: null,
+          reversibility: 'reversible',
+          blast_radius: 'self',
+          undo_prompt: 'Reverse the approved action.',
           execution_prompt: 'Execute the approved action.',
         },
       ],

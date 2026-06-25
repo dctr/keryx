@@ -4,9 +4,7 @@
   import { dismissTask, executeTask, fetchSources, fetchTasks, type ApiTask, type SourceStatus } from './lib/api';
   import {
     applyTaskFilters,
-    autonomyOptions,
     countTasksForView,
-    type AutonomyFilter,
     type SourceFilter,
     type TaskViewKey,
     viewOptions,
@@ -32,14 +30,13 @@
 
   let view: TaskViewKey = 'inbox';
   let source: SourceFilter = 'all';
-  let autonomy: AutonomyFilter = 'all';
   let urgentOnly = false;
 
   let feedbackByTask: Record<string, string> = {};
   let pendingByTask: Record<string, PendingAction | undefined> = {};
 
   $: taskViews = tasks.map(mapTaskToView);
-  $: filteredTasks = applyTaskFilters(taskViews, { view, source, autonomy, urgentOnly });
+  $: filteredTasks = applyTaskFilters(taskViews, { view, source, urgentOnly });
   $: sourceOptions = buildSourceOptions(taskViews, sources);
 
   onMount(() => {
@@ -225,15 +222,6 @@
         </select>
       </label>
 
-      <label>
-        Autonomy
-        <select aria-label="Autonomy" bind:value={autonomy}>
-          {#each autonomyOptions as option (option.value)}
-            <option value={option.value}>{option.label}</option>
-          {/each}
-        </select>
-      </label>
-
       <label class="inline-check">
         <input type="checkbox" bind:checked={urgentOnly} />
         Urgent / deadline soon
@@ -275,7 +263,9 @@
 
           <div class="badge-row">
             <span>{task.sourceLabel}</span>
-            <span>{task.autonomyLabel}</span>
+            {#if task.reversibility}
+              <span>{task.reversibility}</span>
+            {/if}
             <span>{task.urgencyLabel}</span>
             <span>{task.deadlineLabel}</span>
             {#if task.displayGroup}
