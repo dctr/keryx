@@ -539,6 +539,11 @@ textarea {
   font-size: 0.85rem;
 }
 
+.review-log-actions .undo,
+.review-log-actions .archive {
+  font-size: 0.85rem;
+}
+
 @media (max-width: 760px) {
   .app-shell {
     width: min(100% - 1rem, 1180px);

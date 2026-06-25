@@ -150,6 +150,28 @@ export async function recordRegret(taskId: string, kind: RegretKind, note: strin
   });
 }
 
+export interface UndoResponse {
+  ok: true;
+  task_id: string;
+  reversibility?: string;
+  undo_kind?: 'reverse' | 'correct' | 'corrective_card';
+  status?: string;
+}
+
+export async function undoTask(taskId: string): Promise<UndoResponse> {
+  return requestJson<UndoResponse>(`/api/tasks/${encodeURIComponent(taskId)}/undo`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+export async function markReviewed(taskId: string): Promise<TaskMutationResponse> {
+  return requestJson<TaskMutationResponse>(`/api/tasks/${encodeURIComponent(taskId)}/mark-reviewed`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 export async function executeTask(taskId: string, optionId: string, feedback: string): Promise<TaskMutationResponse> {
   const trimmedFeedback = feedback.trim();
   return requestJson<TaskMutationResponse>(`/api/tasks/${encodeURIComponent(taskId)}/execute`, {

@@ -8,8 +8,10 @@
     fetchPolicy,
     fetchSources,
     fetchTasks,
+    markReviewed,
     recordRegret,
     revokePolicyRule,
+    undoTask,
     type ApiTask,
     type MetricsResponse,
     type PolicyResponse,
@@ -61,6 +63,7 @@
   let metricsLoading = false;
 
   let regretPendingByTask: Record<string, RegretKind | undefined> = {};
+  let reviewLogPendingByTask: Record<string, 'undo' | 'archive' | undefined> = {};
 
   $: taskViews = tasks.map(mapTaskToView);
   $: filteredTasks = applyTaskFilters(taskViews, { view, source, urgentOnly });
@@ -238,6 +241,49 @@
     }
   }
 
+  // Honest undo (PRD §7.4, D3): the server reads the executed option's reversibility and
+  // creates the appropriate reversal / labeled-correction / corrective-triage card. That
+  // new card lands in the inbox, so refresh rather than mutating this done card's status.
+  async function handleUndo(task: TaskCardView): Promise<void> {
+    reviewLogPendingByTask = { ...reviewLogPendingByTask, [task.id]: 'undo' };
+    errorMessage = null;
+    try {
+      await undoTask(task.id);
+      await refreshDashboard({ silent: true });
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      reviewLogPendingByTask = { ...reviewLogPendingByTask, [task.id]: undefined };
+    }
+  }
+
+  // Archive (mark-reviewed) a done review-log card so it leaves the review log.
+  async function handleArchive(task: TaskCardView): Promise<void> {
+    reviewLogPendingByTask = { ...reviewLogPendingByTask, [task.id]: 'archive' };
+    errorMessage = null;
+    try {
+      const response = await markReviewed(task.id);
+      updateTaskStatus(task.id, response.status ?? 'archived');
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      reviewLogPendingByTask = { ...reviewLogPendingByTask, [task.id]: undefined };
+    }
+  }
+
+  // The review log offers honest undo only when the executed option's reversibility admits
+  // one (reversible -> Undo; compensable -> Correct). read_only/irreversible options show no
+  // undo affordance — there is nothing to reverse, or no honest reversal exists.
+  function undoLabelFor(task: TaskCardView): string | null {
+    if (task.reversibility === 'reversible') {
+      return 'Undo';
+    }
+    if (task.reversibility === 'compensable') {
+      return 'Correct';
+    }
+    return null;
+  }
+
   function formatPercent(value: number | null): string {
     return value === null ? '—' : `${Math.round(value * 100)}%`;
   }
@@ -404,7 +450,30 @@
 
           {#if task.status === 'done'}
             <div class="task-actions review-log-actions">
-              <button class="secondary" type="button" disabled title="Undo is available from Phase 5.">Undo</button>
+              {#if undoLabelFor(task)}
+                <button
+                  class="secondary undo"
+                  type="button"
+                  data-testid={`undo-${task.id}`}
+                  disabled={reviewLogPendingByTask[task.id] !== undefined}
+                  title={task.reversibility === 'compensable'
+                    ? 'Send a labeled correction; a compensable action cannot be unsent.'
+                    : 'Reverse this reversible action and restore the prior state.'}
+                  onclick={() => handleUndo(task)}
+                >
+                  {reviewLogPendingByTask[task.id] === 'undo' ? 'Working…' : undoLabelFor(task)}
+                </button>
+              {/if}
+              <button
+                class="secondary archive"
+                type="button"
+                data-testid={`archive-${task.id}`}
+                disabled={reviewLogPendingByTask[task.id] !== undefined}
+                title="Mark this reviewed and archive it out of the review log."
+                onclick={() => handleArchive(task)}
+              >
+                {reviewLogPendingByTask[task.id] === 'archive' ? 'Archiving…' : 'Archive'}
+              </button>
               <button
                 class="secondary regret"
                 type="button"

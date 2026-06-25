@@ -154,6 +154,16 @@ test('inspects policy + metrics panels and records escalation regret', async ({ 
   await page.getByRole('button', { name: /Review log/ }).click();
   await page.getByTestId('regret-asked-t_done').click();
   expect(api.regretRequests).toEqual([{ taskId: 't_done', body: { kind: 'should_have_asked' } }]);
+
+  // Review-log honest undo: the reversible done card offers an Undo control wired to /undo.
+  await expect(page.getByTestId('undo-t_done')).toHaveText('Undo');
+  await page.getByTestId('undo-t_done').click();
+  expect(api.undoRequests).toEqual(['t_done']);
+
+  // Archive (mark-reviewed): acknowledges and removes the card from the review log.
+  await page.getByTestId('archive-t_done').click();
+  expect(api.markReviewedRequests).toEqual(['t_done']);
+  await expect(page.getByRole('heading', { name: 'Renew passport reminder' })).toBeHidden();
 });
 
 async function mockKeryxApi(page: Page) {
@@ -162,6 +172,8 @@ async function mockKeryxApi(page: Page) {
   const dismissRequests: Array<{ taskId: string; body: unknown }> = [];
   const regretRequests: Array<{ taskId: string; body: unknown }> = [];
   const revokeRequests: Array<{ collector: string; body: unknown }> = [];
+  const undoRequests: string[] = [];
+  const markReviewedRequests: string[] = [];
   let taskFetches = 0;
 
   await page.route('**/api/tasks', async (route) => {
@@ -246,6 +258,25 @@ async function mockKeryxApi(page: Page) {
     });
   });
 
+  await page.route('**/api/tasks/*/undo', async (route) => {
+    const taskId = route.request().url().match(/\/api\/tasks\/([^/]+)\/undo$/)?.[1] ?? 'unknown';
+    undoRequests.push(taskId);
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, task_id: taskId, reversibility: 'reversible', undo_kind: 'reverse', status: 'ready' }),
+    });
+  });
+
+  await page.route('**/api/tasks/*/mark-reviewed', async (route) => {
+    const taskId = route.request().url().match(/\/api\/tasks\/([^/]+)\/mark-reviewed$/)?.[1] ?? 'unknown';
+    markReviewedRequests.push(taskId);
+    tasks = tasks.map((task) => (task.id === taskId ? { ...task, status: 'archived' } : task));
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, task_id: taskId, status: 'archived', action: 'reviewed' }),
+    });
+  });
+
   // Register the more specific revoke route before the generic policy GET so Playwright
   // (which matches most-recently-registered first) routes /revoke to its own handler.
   await page.route('**/api/policy/*', async (route) => {
@@ -318,6 +349,8 @@ async function mockKeryxApi(page: Page) {
     dismissRequests,
     regretRequests,
     revokeRequests,
+    undoRequests,
+    markReviewedRequests,
     get taskFetches() {
       return taskFetches;
     },
