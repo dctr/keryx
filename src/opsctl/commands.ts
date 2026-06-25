@@ -6,8 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { type KeryxConfig, loadConfig } from '../config';
 import { HermesCliAdapter, parseHermesVersion } from '../hermes/adapter';
 import type { HermesRunner, KanbanTask } from '../hermes/types';
-import { deriveBand, type TrackRecord } from '../policy/confidence';
+import { deriveBand, type Band, type TrackRecord } from '../policy/confidence';
 import { decideDisposition } from '../policy/disposition';
+import { loadPolicy } from '../policy/policyStore';
+import { aggregateTrackRecord } from '../policy/trackRecord';
 import { composeDigest, extractOutcomes, type DigestCadence } from './digest';
 import { actionItemSchema, type ActionItem, type ActionOption, validateActionItem } from '../schemas/actionItem';
 import { collectorStateSchema, validateCollectorState } from '../schemas/collectorState';
@@ -16,7 +18,7 @@ import { executionDecisionSchema, validateExecutionDecision } from '../schemas/e
 import { notificationSchema } from '../schemas/notification';
 import { outcomeSchema, validateOutcome } from '../schemas/outcome';
 import type { Outcome } from '../schemas/outcome';
-import { policySchema, validatePolicy } from '../schemas/policy';
+import { policySchema, type PolicyRule, validatePolicy } from '../schemas/policy';
 import { policyDecisionSchema, type PolicyDecision, validatePolicyDecision } from '../schemas/policyDecision';
 import { regretSchema } from '../schemas/regret';
 import {
@@ -78,6 +80,9 @@ Mutating commands:
                                   Append an exact-item dismissal and archive a card
   digest [--preview] [--cadence daily|weekly]
                                   Render the relevancy-grouped digest of silent outcomes (--preview only for now)
+  policy show <collector> [--json]
+                                  Show a collector's active/shadow rules and derived track-record bands
+  policy validate <file>          Validate a collector policy JSON document
 
 Global options:
   --help, -h                     Show this help
@@ -186,6 +191,8 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
         return dismissCard(parsed, adapter, options.now ?? (() => new Date()));
       case 'digest':
         return digest(parsed, adapter);
+      case 'policy':
+        return await policyCommand(parsed, adapter, options);
       case 'doctor':
         return doctor(config, adapter, { cwd: options.cwd ?? process.cwd(), env: options.env ?? process.env });
       default:
@@ -681,6 +688,125 @@ function parseCadence(value: string | undefined): { ok: true; value: DigestCaden
   }
   return { ok: false, error: fail('FAIL digest --cadence must be daily or weekly', 2) };
 }
+
+// `policy` subcommands (PRD §7.7): inspect a collector's human-approved rule store and
+// the track-record bands derived from the live Kanban audit trail, validate a policy
+// document, or propose a new rule via a human-approval suggestion card.
+async function policyCommand(
+  parsed: ParsedArgs,
+  adapter: HermesCliAdapter,
+  options: RunOpsctlOptions,
+): Promise<CommandResult> {
+  const subcommand = parsed.positionals[0];
+  switch (subcommand) {
+    case 'show':
+      return policyShow(parsed, adapter, options);
+    case 'validate':
+      return policyValidate(parsed.positionals[1]);
+    default:
+      return fail('FAIL policy requires one of: show, validate', 2);
+  }
+}
+
+// The source name a collector polls (its Kanban tenant): keryx-email -> email.
+function collectorSource(collector: string): string {
+  return collector.startsWith('keryx-') ? collector.slice('keryx-'.length) : collector;
+}
+
+interface PolicyShowClassRecord extends TrackRecord {
+  band: Band;
+}
+
+async function policyShow(parsed: ParsedArgs, adapter: HermesCliAdapter, options: RunOpsctlOptions): Promise<CommandResult> {
+  const collector = parsed.positionals[1];
+  if (!collector) {
+    return fail('FAIL policy show requires a collector (e.g. keryx-email)', 2);
+  }
+
+  const loaded = loadPolicy(collector, { hermesHome: options.config?.hermesHome, env: options.env, now: options.now });
+  if (!loaded.ok) {
+    return fail(`FAIL invalid policy: ${loaded.path}\n${formatValidationErrors(loaded.errors)}`);
+  }
+
+  // Bands are derived live from the Kanban audit trail (§7.7) rather than trusting the
+  // policy file's cached track_record. Scope the scan to this collector's tenant.
+  const tasks = await adapter.listTasks({ source: collectorSource(collector) });
+  const aggregated = aggregateTrackRecord(tasks);
+
+  // Surface every class that has history OR appears in a rule, so a freshly-proposed
+  // rule shows its (cold) band even before any execution lands.
+  const classes = new Set<string>([...Object.keys(aggregated), ...loaded.policy.rules.map((rule) => rule.class)]);
+  const derived: Record<string, PolicyShowClassRecord> = {};
+  for (const cls of classes) {
+    const record = aggregated[cls] ?? { approved: 0, overridden: 0, dismissed: 0, regret: 0 };
+    derived[cls] = { ...record, band: deriveBand(record) };
+  }
+
+  if (parsed.flags.get('json') === true) {
+    return ok(
+      json({
+        collector: loaded.policy.collector,
+        exists: loaded.exists,
+        version: loaded.policy.version,
+        rules: loaded.policy.rules,
+        track_record: derived,
+      }),
+    );
+  }
+
+  return ok(formatPolicyShow(loaded.policy.collector, loaded.exists, loaded.policy.rules, derived));
+}
+
+function formatPolicyShow(
+  collector: string,
+  exists: boolean,
+  rules: PolicyRule[],
+  trackRecord: Record<string, PolicyShowClassRecord>,
+): string {
+  const lines: string[] = [`policy: ${collector}${exists ? '' : ' (no policy file; defaults shown)'}`];
+
+  lines.push('', `rules (${rules.length}):`);
+  if (rules.length === 0) {
+    lines.push('  (none — everything resolves to review)');
+  } else {
+    for (const rule of rules) {
+      lines.push(
+        `  ${rule.id}  [${rule.state}]  ${rule.disposition}  class=${rule.class}  ` +
+          `gate=${rule.gate.max_blast_radius}/${rule.gate.min_reversibility}/${rule.gate.min_confidence}`,
+      );
+    }
+  }
+
+  const classes = Object.keys(trackRecord).sort();
+  lines.push('', `track record (${classes.length}):`);
+  if (classes.length === 0) {
+    lines.push('  (no history yet)');
+  } else {
+    for (const cls of classes) {
+      const record = trackRecord[cls];
+      lines.push(
+        `  ${cls}  band=${record.band}  approved=${record.approved} overridden=${record.overridden} ` +
+          `dismissed=${record.dismissed} regret=${record.regret}`,
+      );
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function policyValidate(filePath: string | undefined): CommandResult {
+  if (!filePath) {
+    return fail('FAIL policy validate requires a JSON file path', 2);
+  }
+
+  const validation = validatePolicy(parseJsonFile(filePath));
+  if (!validation.ok) {
+    return fail(`FAIL invalid policy: ${filePath}\n${formatValidationErrors(validation.errors)}`);
+  }
+
+  return ok(`OK valid policy: ${validation.value.collector}`);
+}
+
 
 interface DoctorOptions {
   cwd: string;
