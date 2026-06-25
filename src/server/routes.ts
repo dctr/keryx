@@ -170,6 +170,34 @@ export function registerApiRoutes(server: FastifyInstance, options: RegisterApiR
     return sendCommandResult(reply, result);
   });
 
+  // Honest undo (PRD §7.4, D3): reverse/correct an executed card per its reversibility.
+  // Delegates to the shared opsctl logic, which reads the executed option's reversibility
+  // and creates the appropriate reversal / labeled-correction / corrective-triage card.
+  server.post<{ Params: TaskParams }>('/api/tasks/:id/undo', async (request, reply) => {
+    noStore(reply);
+    const idCheck = validateTaskId(request.params.id);
+    if (!idCheck.ok) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', idCheck.message);
+    }
+
+    const result = await options.runOpsctl(['undo', request.params.id], buildOpsctlOptions(options));
+    return sendCommandResult(reply, result);
+  });
+
+  // Mark-reviewed (PRD §7.10, §9): archive a reviewed review-log (done) card so it leaves
+  // the review log. Delegates to the dedicated opsctl `mark-reviewed` command, which writes
+  // a `keryx:reviewed` marker comment and archives the card.
+  server.post<{ Params: TaskParams }>('/api/tasks/:id/mark-reviewed', async (request, reply) => {
+    noStore(reply);
+    const idCheck = validateTaskId(request.params.id);
+    if (!idCheck.ok) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', idCheck.message);
+    }
+
+    const result = await options.runOpsctl(['mark-reviewed', request.params.id], buildOpsctlOptions(options));
+    return sendCommandResult(reply, result);
+  });
+
   // Escalation-regret signal (PRD §7.9): one-click feedback that feeds confidence bands.
   server.post<{ Params: TaskParams }>('/api/tasks/:id/regret', async (request, reply) => {
     noStore(reply);

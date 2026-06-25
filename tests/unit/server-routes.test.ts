@@ -264,6 +264,69 @@ describe('server route wiring', () => {
     }
   });
 
+  it('delegates an undo request to opsctl', async () => {
+    const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ ok: true, task_id: 't_silent', undo_kind: 'reverse', status: 'ready' }),
+      stderr: '',
+    }));
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), runOpsctl });
+
+    try {
+      const response = await server.inject({ method: 'POST', url: '/api/tasks/t_silent/undo' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.json()).toMatchObject({ ok: true, undo_kind: 'reverse', status: 'ready' });
+      expect(runOpsctl).toHaveBeenCalledWith(
+        ['undo', 't_silent'],
+        expect.objectContaining({ config: expect.objectContaining({ board: 'keryx' }) }),
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects an undo request for an id beginning with a dash before opsctl is called', async () => {
+    const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({ exitCode: 0, stdout: '{}', stderr: '' }));
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), runOpsctl });
+
+    try {
+      const response = await server.inject({ method: 'POST', url: '/api/tasks/-rf/undo' });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        ok: false,
+        error: { code: 'VALIDATION_ERROR', message: 'task id must not begin with "-"' },
+      });
+      expect(runOpsctl).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('delegates a mark-reviewed request to opsctl', async () => {
+    const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ ok: true, task_id: 't_done', status: 'archived', action: 'reviewed' }),
+      stderr: '',
+    }));
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), runOpsctl });
+
+    try {
+      const response = await server.inject({ method: 'POST', url: '/api/tasks/t_done/mark-reviewed' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ ok: true, status: 'archived', action: 'reviewed' });
+      expect(runOpsctl).toHaveBeenCalledWith(
+        ['mark-reviewed', 't_done'],
+        expect.objectContaining({ config: expect.objectContaining({ board: 'keryx' }) }),
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
   it('delegates a regret signal to opsctl', async () => {
     const runOpsctl = vi.fn(async (): Promise<CommandResult> => ({
       exitCode: 0,

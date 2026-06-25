@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 
 import type { KeryxConfig } from '../config';
 import type { ActionItem } from '../schemas/actionItem';
+import type { ExecutionDecision } from '../schemas/executionDecision';
 import type { PolicyDecision } from '../schemas/policyDecision';
 import type { DeliveryTarget, HermesRunRequest, HermesRunResult, HermesRunner, KanbanTask } from './types';
 
@@ -72,6 +73,22 @@ export class HermesCliAdapter {
     const taskId = extractCreatedTaskId(created);
     await this.commentTask(taskId, JSON.stringify(policyDecision));
     await this.promoteTask(taskId, 'approved by Keryx policy');
+    return created;
+  }
+
+  // Honest-undo path (PRD §7.4, D3): create a reversal/correction card authorized by the
+  // user's explicit undo click — a trusted review-path keryx.execution_decision.v1 — then
+  // promote it to `ready` so the worker runs the reversal/correction without a second
+  // approval step. Distinct from createReadyTaskFromActionItem (whose authority is a
+  // synthetic policy decision); here a human asked for the undo.
+  async createReadyTaskFromExecutionDecision(
+    actionItem: ActionItem,
+    executionDecision: ExecutionDecision,
+  ): Promise<unknown> {
+    const created = parseJson(await this.run(this.createCardArgs(actionItem)));
+    const taskId = extractCreatedTaskId(created);
+    await this.commentTask(taskId, JSON.stringify(executionDecision));
+    await this.promoteTask(taskId, 'approved by Keryx undo');
     return created;
   }
 
