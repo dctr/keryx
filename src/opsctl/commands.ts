@@ -175,9 +175,9 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
       case 'validate-dismissal':
         return validateDismissalCommand(parsed.positionals[0]);
       case 'create-card':
-        return await createCard(parsed.positionals[0], adapter, options.now ?? (() => new Date()));
+        return await createCard(parsed.positionals[0], adapter, options);
       case 'auto-execute':
-        return await autoExecute(parsed.positionals[0], adapter, options.now ?? (() => new Date()));
+        return await autoExecute(parsed.positionals[0], adapter, options);
       case 'list':
         return listCards(parsed, adapter);
       case 'show':
@@ -380,11 +380,12 @@ function validateDismissalCommand(filePath: string | undefined): CommandResult {
   return ok(`OK valid dismissal decision: ${validation.value.dismissed_external_id}`);
 }
 
-async function createCard(filePath: string | undefined, adapter: HermesCliAdapter, now: () => Date): Promise<CommandResult> {
+async function createCard(filePath: string | undefined, adapter: HermesCliAdapter, options: RunOpsctlOptions): Promise<CommandResult> {
   if (!filePath) {
     return fail('FAIL create-card requires a JSON file path', 2);
   }
 
+  const now = options.now ?? (() => new Date());
   const validation = validateActionItem(parseJsonFile(filePath));
   if (!validation.ok) {
     return fail(`FAIL invalid action card: ${filePath}\n${formatValidationErrors(validation.errors)}`);
@@ -392,25 +393,31 @@ async function createCard(filePath: string | undefined, adapter: HermesCliAdapte
 
   const card = validation.value;
   const selected = selectedOptionFor(card);
-  const disposition = resolveDisposition(card, selected);
+  const disposition = await resolveDisposition(card, selected, adapter, options);
 
   if (disposition.disposition === 'silent') {
     const policyDecision = buildPolicyDecision(card, selected, disposition.rule_id, disposition.reasons, now);
     return ok(json(await adapter.createReadyTaskFromActionItem(card, policyDecision)));
   }
 
-  return ok(json(await adapter.createTaskFromActionItem(card)));
+  // A shadow rule resolves to review but "would have" run silently: record that reasoning
+  // as a policy_decision on the blocked card so shadow agreement is auditable (§10.1).
+  const shadowDecision = disposition.shadow
+    ? buildShadowPolicyDecision(card, selected, disposition.rule_id, disposition.reasons, now)
+    : undefined;
+  return ok(json(await adapter.createTaskFromActionItem(card, shadowDecision)));
 }
 
 // `auto-execute` is the creation+promotion entrypoint used by collectors/tests for a
 // card that must run silently. It validates, derives the disposition, and (only when
 // silent) creates the ready card plus its policy-decision comment. The Kanban worker —
 // not opsctl — performs the side effect and writes the keryx.outcome.v1 comment (§7.4).
-async function autoExecute(filePath: string | undefined, adapter: HermesCliAdapter, now: () => Date): Promise<CommandResult> {
+async function autoExecute(filePath: string | undefined, adapter: HermesCliAdapter, options: RunOpsctlOptions): Promise<CommandResult> {
   if (!filePath) {
     return fail('FAIL auto-execute requires a JSON file path', 2);
   }
 
+  const now = options.now ?? (() => new Date());
   const validation = validateActionItem(parseJsonFile(filePath));
   if (!validation.ok) {
     return fail(`FAIL invalid action card: ${filePath}\n${formatValidationErrors(validation.errors)}`);
@@ -418,7 +425,7 @@ async function autoExecute(filePath: string | undefined, adapter: HermesCliAdapt
 
   const card = validation.value;
   const selected = selectedOptionFor(card);
-  const disposition = resolveDisposition(card, selected);
+  const disposition = await resolveDisposition(card, selected, adapter, options);
 
   if (disposition.disposition !== 'silent') {
     return fail(
@@ -430,10 +437,36 @@ async function autoExecute(filePath: string | undefined, adapter: HermesCliAdapt
   return ok(json(await adapter.createReadyTaskFromActionItem(card, policyDecision)));
 }
 
-// Phase 3: no policy store yet (passed null) and an empty track record (cold band).
-// Only read_only options reach the silent disposition; everything else stays blocked.
-function resolveDisposition(card: ActionItem, selected: ActionOption) {
-  return decideDisposition(card, selected, deriveBand(emptyTrackRecord()), null);
+// Resolves a card's disposition against the live trust inputs (PRD §7.2–7.4): the
+// collector's human-approved policy store and the confidence band derived from the
+// Kanban audit trail for this (collector, class). A malformed/unloadable policy is
+// treated fail-safe as "no policy" — a broken policy must never grant autonomy, so the
+// card falls back to review (or read_only silent, which needs no rule). The expensive
+// live band lookup runs only when a rule actually covers the card's class; read_only and
+// uncovered cells resolve from a cold band without touching Kanban.
+async function resolveDisposition(
+  card: ActionItem,
+  selected: ActionOption,
+  adapter: HermesCliAdapter,
+  options: RunOpsctlOptions,
+): Promise<ReturnType<typeof decideDisposition>> {
+  const loaded = loadPolicy(card.collector, {
+    hermesHome: options.config?.hermesHome,
+    env: options.env,
+    now: options.now,
+  });
+  const policy = loaded.ok ? loaded.policy : null;
+
+  const classHasRule = policy?.rules.some((rule) => rule.class === card.class) ?? false;
+  const band: Band = classHasRule ? await deriveBandForClass(card, adapter) : deriveBand(emptyTrackRecord());
+
+  return decideDisposition(card, selected, band, policy);
+}
+
+async function deriveBandForClass(card: ActionItem, adapter: HermesCliAdapter): Promise<Band> {
+  const tasks = await adapter.listTasks({ source: collectorSource(card.collector) });
+  const record = aggregateTrackRecord(tasks)[card.class] ?? emptyTrackRecord();
+  return deriveBand(record);
 }
 
 // Picks the option the disposition function reasons over: the collector-suggested
@@ -462,6 +495,28 @@ function buildPolicyDecision(
     reasons,
     approved_by: 'keryx-policy',
     approved_via: ruleId ? `policy:${ruleId}` : 'policy:read-only',
+    approved_at: now().toISOString(),
+  };
+}
+
+// A shadow-mode "would have" record (PRD §10.1). The card stays in review (blocked); this
+// comment captures that an in-shadow rule would have authorized a silent run, so shadow
+// agreement is measurable before promotion. disposition is the real outcome (review).
+function buildShadowPolicyDecision(
+  card: ActionItem,
+  selected: ActionOption,
+  ruleId: string | null,
+  reasons: string[],
+  now: () => Date,
+): PolicyDecision {
+  return {
+    schema: 'keryx.policy_decision.v1',
+    selected_option_id: selected.id,
+    disposition: 'review',
+    rule_id: ruleId,
+    reasons,
+    approved_by: 'keryx-policy',
+    approved_via: ruleId ? `policy:shadow:${ruleId}` : 'policy:shadow',
     approved_at: now().toISOString(),
   };
 }

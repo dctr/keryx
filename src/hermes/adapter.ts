@@ -44,7 +44,7 @@ export class HermesCliAdapter {
     return parseKanbanTask(await this.run(['kanban', '--board', this.config.board, 'show', taskId, '--json']));
   }
 
-  async createTaskFromActionItem(actionItem: ActionItem): Promise<unknown> {
+  async createTaskFromActionItem(actionItem: ActionItem, shadowDecision?: PolicyDecision): Promise<unknown> {
     // TODO(https://github.com/NousResearch/hermes-agent/issues/39609): replace this
     // create→block→assign workaround with atomic sticky-blocked creation once Hermes
     // `--initial-status blocked` no longer auto-promotes.
@@ -54,6 +54,12 @@ export class HermesCliAdapter {
       await this.blockTask(taskId, 'approval-required: Keryx candidate awaiting user decision');
     }
     await this.assignTask(taskId, this.config.defaultAssignee);
+    // Shadow mode (PRD §10.1): a shadow rule "would have" run this silently. Record the
+    // disposition function's reasoning on the still-blocked card so the user can judge
+    // stability before promoting shadow → active, without granting any autonomy now.
+    if (shadowDecision) {
+      await this.commentTask(taskId, JSON.stringify(shadowDecision));
+    }
     return created;
   }
 
