@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://keryx.local/schemas/policy.v1.schema.json",
+  "title": "Keryx policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "collector", "version", "updated_at", "rules", "thresholds", "track_record"],
+  "properties": {
+    "schema": { "const": "keryx.policy.v1" },
+    "collector": { "type": "string", "pattern": "^keryx-[A-Za-z0-9_.:-]+$" },
+    "version": { "type": "integer", "minimum": 1 },
+    "updated_at": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$" },
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/rule" }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spend_requires_approval_always"],
+      "properties": {
+        "spend_requires_approval_always": { "type": "boolean" }
+      }
+    },
+    "track_record": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/trackRecord" }
+    }
+  },
+  "definitions": {
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "class", "gate", "disposition", "state", "approved_by", "approved_at", "source_card_id", "scope_note"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "class": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_.:-]+$" },
+        "gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_blast_radius", "min_reversibility", "min_confidence"],
+          "properties": {
+            "max_blast_radius": { "enum": ["self", "external"] },
+            "min_reversibility": { "enum": ["read_only", "reversible", "compensable", "irreversible"] },
+            "min_confidence": { "enum": ["cold", "warming", "trusted"] }
+          }
+        },
+        "disposition": { "enum": ["silent", "review", "interrupt"] },
+        "result_delivery": { "enum": ["digest", "push", "log_only"] },
+        "state": { "enum": ["shadow", "active"] },
+        "approved_by": { "type": "string", "minLength": 1 },
+        "approved_at": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$" },
+        "source_card_id": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "scope_note": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "trackRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approved", "overridden", "dismissed", "regret", "band", "updated_at"],
+      "properties": {
+        "approved": { "type": "integer", "minimum": 0 },
+        "overridden": { "type": "integer", "minimum": 0 },
+        "dismissed": { "type": "integer", "minimum": 0 },
+        "regret": { "type": "integer", "minimum": 0 },
+        "band": { "enum": ["cold", "warming", "trusted"] },
+        "updated_at": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$" }
+      }
+    }
+  }
+}
