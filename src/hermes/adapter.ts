@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 
 import type { KeryxConfig } from '../config';
 import type { ActionItem } from '../schemas/actionItem';
+import type { PolicyDecision } from '../schemas/policyDecision';
 import type { DeliveryTarget, HermesRunRequest, HermesRunResult, HermesRunner, KanbanTask } from './types';
 
 export interface ListTaskOptions {
@@ -47,32 +48,46 @@ export class HermesCliAdapter {
     // TODO(https://github.com/NousResearch/hermes-agent/issues/39609): replace this
     // create→block→assign workaround with atomic sticky-blocked creation once Hermes
     // `--initial-status blocked` no longer auto-promotes.
-    const created = parseJson(
-      await this.run([
-        'kanban',
-        '--board',
-        this.config.board,
-        'create',
-        actionItem.title,
-        '--body',
-        JSON.stringify(actionItem),
-        '--tenant',
-        actionItem.source,
-        '--idempotency-key',
-        actionItem.idempotency_key,
-        '--created-by',
-        actionItem.collector,
-        '--skill',
-        'keryx:keryx-worker',
-        '--json',
-      ]),
-    );
+    const created = parseJson(await this.run(this.createCardArgs(actionItem)));
     const taskId = extractCreatedTaskId(created);
     if (!createdTaskAlreadyBlocked(created)) {
       await this.blockTask(taskId, 'approval-required: Keryx candidate awaiting user decision');
     }
     await this.assignTask(taskId, this.config.defaultAssignee);
     return created;
+  }
+
+  // Silent disposition path (PRD §7.4, §9): create the card, attach the validated
+  // synthetic policy-decision comment that authorizes silent execution, then promote
+  // it straight to `ready` so the worker is dispatched without a human approval step.
+  // The worker (skill) is what actually executes once dispatched.
+  async createReadyTaskFromActionItem(actionItem: ActionItem, policyDecision: PolicyDecision): Promise<unknown> {
+    const created = parseJson(await this.run(this.createCardArgs(actionItem)));
+    const taskId = extractCreatedTaskId(created);
+    await this.commentTask(taskId, JSON.stringify(policyDecision));
+    await this.promoteTask(taskId, 'approved by Keryx policy');
+    return created;
+  }
+
+  private createCardArgs(actionItem: ActionItem): string[] {
+    return [
+      'kanban',
+      '--board',
+      this.config.board,
+      'create',
+      actionItem.title,
+      '--body',
+      JSON.stringify(actionItem),
+      '--tenant',
+      actionItem.source,
+      '--idempotency-key',
+      actionItem.idempotency_key,
+      '--created-by',
+      actionItem.collector,
+      '--skill',
+      'keryx:keryx-worker',
+      '--json',
+    ];
   }
 
   async blockTask(taskId: string, reason: string): Promise<unknown> {

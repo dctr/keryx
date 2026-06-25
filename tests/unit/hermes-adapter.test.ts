@@ -10,6 +10,8 @@ import {
   parseKanbanTask,
   parseKanbanTasks,
 } from '../../src/hermes/adapter';
+import { validatePolicyDecision, type PolicyDecision } from '../../src/schemas/policyDecision';
+import { sampleActionItem } from '../helpers/sampleActionItem';
 import type { HermesRunner } from '../../src/hermes/types';
 
 describe('Hermes CLI adapter', () => {
@@ -105,6 +107,47 @@ describe('Hermes CLI adapter', () => {
       /not allowlisted/i,
     );
     expect(() => assertAllowedHermesArgs(['kanban', '--board', 'keryx', 'show', 't_1', '--json'])).not.toThrow();
+  });
+
+  it('creates a silent card as ready with a validated policy-decision comment, in create -> comment -> promote order', async () => {
+    const item = sampleActionItem();
+    const policyDecision: PolicyDecision = {
+      schema: 'keryx.policy_decision.v1',
+      selected_option_id: item.options[0].id,
+      disposition: 'silent',
+      rule_id: null,
+      reasons: ['read_only -> silent by design'],
+      approved_by: 'keryx-policy',
+      approved_via: 'policy:read-only',
+      approved_at: '2026-06-25T00:00:00+10:00',
+    };
+    const runner = vi.fn<HermesRunner>(async (request) => ({
+      stdout:
+        request.args[3] === 'create'
+          ? JSON.stringify({ id: 't_ready', title: item.title, status: 'blocked' })
+          : request.args[3] === 'promote'
+            ? JSON.stringify({ id: 't_ready', status: 'ready' })
+            : '',
+      stderr: '',
+      exitCode: 0,
+    }));
+    const adapter = new HermesCliAdapter(
+      loadConfig({ env: {}, configPath: null, overrides: { defaultAssignee: 'default' } }),
+      runner,
+    );
+
+    await adapter.createReadyTaskFromActionItem(item, policyDecision);
+
+    const verbs = runner.mock.calls.map(([request]) => request.args[3]);
+    expect(verbs).toEqual(['create', 'comment', 'promote']);
+
+    const commentArgs = runner.mock.calls[1][0].args;
+    expect(commentArgs.slice(0, 5)).toEqual(['kanban', '--board', 'keryx', 'comment', 't_ready']);
+    const commentBody = JSON.parse(commentArgs[5]) as unknown;
+    expect(validatePolicyDecision(commentBody).ok).toBe(true);
+
+    const promoteArgs = runner.mock.calls[2][0].args;
+    expect(promoteArgs).toEqual(['kanban', '--board', 'keryx', 'promote', 't_ready', 'approved by Keryx policy', '--json']);
   });
 
   it('parses Hermes Kanban JSON envelopes', () => {
