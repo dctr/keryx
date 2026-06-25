@@ -10,6 +10,7 @@ export interface CollectorState {
   committed_cursor: CollectorCursor;
   last_success_at: string | null;
   exact_dismissed_external_ids: string[];
+  executed_external_ids?: string[];
   diagnostic_metadata?: Record<string, string | number | boolean | null>;
 }
 
