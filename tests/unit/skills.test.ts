@@ -57,6 +57,29 @@ describe('bundled Keryx skills', () => {
     }
   });
 
+  it('extends the worker silent path to graduated state-changing classes', () => {
+    const workerSkillText = readFileSync(join(categoryRoot, 'keryx-worker', 'SKILL.md'), 'utf8');
+
+    // Task 5.1: the worker accepts a policy_decision for non-floor state-changing
+    // options whose axes match an `active` rule, beyond the read_only case.
+    expect(workerSkillText).toContain('graduated state-changing option');
+
+    // The state-changing branch is reversible/compensable only, never irreversible.
+    expect(workerSkillText).toContain('never `irreversible`');
+
+    // Execution-time re-checks: re-query source, re-check the floor, and confirm the
+    // option's axes still fall within the active rule's gate bounds.
+    expect(workerSkillText).toContain('re-check the absolute floor');
+    expect(workerSkillText).toContain('gate bounds');
+    expect(workerSkillText).toContain('min_reversibility');
+    expect(workerSkillText).toContain('max_blast_radius');
+
+    // The planned action must not escalate beyond the declared axes, and the option
+    // must stay honestly reversible via an undo_prompt.
+    expect(workerSkillText).toContain('does not escalate');
+    expect(workerSkillText).toContain('undo_prompt');
+  });
+
   it('documents feedback-driven automation suggestions in the worker skill', () => {
     const workerSkillText = readFileSync(join(categoryRoot, 'keryx-worker', 'SKILL.md'), 'utf8');
 

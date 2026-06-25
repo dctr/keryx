@@ -42,6 +42,18 @@ Before any silent side effect:
 
 This silent gate is distinct from the review path: there a human's `keryx.execution_decision.v1` is the authority; here the policy decision plus the live floor re-check is the authority.
 
+### Graduated state-changing options
+
+A **graduated state-changing option** is a non-`read_only` option (a real side effect — e.g. a newsletter unsubscribe or an automated forwarding rule) that may execute silently when its `class` has climbed the ladder to `trusted` and a human approved an `active` rule covering it. This branch is `reversible` or `compensable` only, **never `irreversible`** and never carrying an `absolute_floor` value — those cap at draft + approve and must block on the silent path.
+
+Authorize a graduated state-changing option only when, at execution time:
+
+- The selected option's axes still fall within the matched `active` rule's **gate bounds**: `reversibility` is no weaker than the rule's `min_reversibility`, and `blast_radius` is no broader than the rule's `max_blast_radius`. If the option now sits outside those bounds, block.
+- The re-queried source confirms the plan **does not escalate** beyond the option's declared axes — it must not become irreversible, broaden blast radius, or touch an absolute-floor category that was not present at carding time. Any such drift blocks.
+- The option declares an honest `undo_prompt` (required for `reversible` / `compensable`), so the executed work stays reversible/correctable via `undo`.
+
+After these execution-time re-checks pass, perform the side effect, then write the `keryx.outcome.v1` outcome below. If any check fails, block with the exact reason rather than executing.
+
 ## Side-effect rules
 
 - Proceed with side effects only when the selected option clearly authorizes the action (human decision or qualifying policy decision) and the task has enough context.
