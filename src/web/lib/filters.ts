@@ -1,7 +1,7 @@
 import type { TaskCardView } from './taskView';
 import { sortTaskViews } from './taskView';
 
-export type TaskViewKey = 'inbox' | 'running' | 'completed' | 'dismissed';
+export type TaskViewKey = 'needsYou' | 'running' | 'reviewLog' | 'dismissed';
 export type SourceFilter = 'all' | string;
 
 export interface TaskFilters {
@@ -10,10 +10,13 @@ export interface TaskFilters {
   urgentOnly: boolean;
 }
 
+// Lanes follow the v005 disposition model: cards needing the user (blocked/todo),
+// cards in flight (ready/running), the read-only review log of finished cards
+// (done — silent outcomes and human-approved executions land here), and dismissals.
 export const viewOptions: Array<{ key: TaskViewKey; label: string; statuses: string[] }> = [
-  { key: 'inbox', label: 'Inbox', statuses: ['blocked', 'todo'] },
+  { key: 'needsYou', label: 'Needs you', statuses: ['blocked', 'todo'] },
   { key: 'running', label: 'Running', statuses: ['ready', 'running'] },
-  { key: 'completed', label: 'Completed', statuses: ['done'] },
+  { key: 'reviewLog', label: 'Review log', statuses: ['done'] },
   { key: 'dismissed', label: 'Dismissed', statuses: ['archived'] },
 ];
 

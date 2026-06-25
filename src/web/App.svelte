@@ -28,7 +28,7 @@
   let errorMessage: string | null = null;
   let lastUpdated: Date | null = null;
 
-  let view: TaskViewKey = 'inbox';
+  let view: TaskViewKey = 'needsYou';
   let source: SourceFilter = 'all';
   let urgentOnly = false;
 
@@ -266,6 +266,15 @@
             {#if task.reversibility}
               <span>{task.reversibility}</span>
             {/if}
+            {#if task.blastRadius}
+              <span>{task.blastRadius}</span>
+            {/if}
+            {#if task.dispositionLabel}
+              <span class="badge-disposition">{task.dispositionLabel}</span>
+            {/if}
+            {#if task.confidenceLabel}
+              <span class="badge-confidence">{task.confidenceLabel}</span>
+            {/if}
             <span>{task.urgencyLabel}</span>
             <span>{task.deadlineLabel}</span>
             {#if task.displayGroup}
@@ -278,7 +287,15 @@
             <p class="risk"><strong>Risk:</strong> {task.risk}</p>
           {/if}
 
-          {#if task.options.length > 0}
+          {#if task.outcomeSummary}
+            <p class="outcome"><strong>Outcome:</strong> {task.outcomeSummary}</p>
+          {/if}
+
+          {#if task.status === 'done'}
+            <div class="task-actions review-log-actions">
+              <button class="secondary" type="button" disabled title="Undo is available from Phase 5.">Undo</button>
+            </div>
+          {:else if task.options.length > 0}
             <div class="feedback">
               <textarea
                 aria-label={`Feedback for ${task.title}`}

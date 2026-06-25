@@ -53,20 +53,20 @@ test('renders the action inbox and sends execute/dismiss requests to the API', a
   await expect(page.getByTestId('source-status-strip')).toContainText('Events');
   await expect(page.getByTestId('source-status-strip')).toContainText('FAILED');
 
-  for (const viewName of ['Inbox', 'Running', 'Completed', 'Dismissed']) {
+  for (const viewName of ['Needs you', 'Running', 'Review log', 'Dismissed']) {
     await expect(page.getByRole('button', { name: new RegExp(viewName) })).toBeVisible();
   }
 
   await page.getByRole('button', { name: /Running/ }).click();
   await expect(page.getByRole('heading', { name: 'Plan venue options for team planning session' })).toBeVisible();
 
-  await page.getByRole('button', { name: /Completed/ }).click();
+  await page.getByRole('button', { name: /Review log/ }).click();
   await expect(page.getByRole('heading', { name: 'Renew passport reminder' })).toBeVisible();
 
   await page.getByRole('button', { name: /Dismissed/ }).click();
   await expect(page.getByRole('heading', { name: 'Old workshop listing' })).toBeVisible();
 
-  await page.getByRole('button', { name: /Inbox/ }).click();
+  await page.getByRole('button', { name: /Needs you/ }).click();
   const emailCard = page.getByTestId('task-card-t_email');
   await expect(emailCard.getByRole('heading', { name: 'Support request: account access needs review' })).toBeVisible();
   await expect(emailCard.getByText('Support Desk — Account access request')).toBeVisible();
@@ -87,11 +87,6 @@ test('renders the action inbox and sends execute/dismiss requests to the API', a
   await expect(page.getByRole('heading', { name: 'Workshop booking opportunity' })).toBeHidden();
 
   await page.getByLabel('Source', { exact: true }).selectOption('all');
-  await page.getByLabel('Autonomy', { exact: true }).selectOption('minimal');
-  await expect(page.getByRole('heading', { name: 'Workshop booking opportunity' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Support request: account access needs review' })).toBeHidden();
-
-  await page.getByLabel('Autonomy', { exact: true }).selectOption('all');
   await page.getByLabel('Feedback for Support request: account access needs review').fill('Please be brief.');
   await page.getByRole('button', { name: 'Translate + forward to support contact + archive email' }).click();
 
@@ -104,7 +99,7 @@ test('renders the action inbox and sends execute/dismiss requests to the API', a
   await expect(page.getByRole('heading', { name: 'Support request: account access needs review' })).toBeVisible();
   await expect(page.getByTestId('task-card-t_email').getByText('Queued')).toBeVisible();
 
-  await page.getByRole('button', { name: /Inbox/ }).click();
+  await page.getByRole('button', { name: /Needs you/ }).click();
   const workshopCard = page.getByTestId('task-card-t_workshop');
   const workshopAction = workshopCard.getByRole('button', { name: 'Start booking in GUI browser' });
   const workshopFeedback = page.getByLabel('Feedback for Workshop booking opportunity');

@@ -1,5 +1,13 @@
 import type { ActionItem } from '../../schemas/actionItem';
 
+export type ConfidenceBand = 'cold' | 'warming' | 'trusted';
+
+export interface TaskOutcome {
+  result_summary: string;
+  result_delivery?: 'digest' | 'push' | 'log_only';
+  changed_state?: string | null;
+}
+
 export interface ApiTask {
   id: string;
   title: string | null;
@@ -8,6 +16,8 @@ export interface ApiTask {
   tenant: string | null;
   created_by: string | null;
   action_item: ActionItem;
+  confidence_band?: ConfidenceBand | null;
+  outcome?: TaskOutcome | null;
 }
 
 export interface MalformedTaskError {

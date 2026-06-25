@@ -40,7 +40,7 @@ describe('task view mapping', () => {
     expect(statusLabelFor('todo')).toBe('Needs User');
     expect(statusLabelFor('ready')).toBe('Queued');
     expect(statusLabelFor('running')).toBe('Running');
-    expect(statusLabelFor('done')).toBe('Completed');
+    expect(statusLabelFor('done')).toBe('Review log');
     expect(statusLabelFor('archived')).toBe('Dismissed');
   });
 
@@ -82,6 +82,28 @@ describe('task view mapping', () => {
     expect(preferred.primaryOption?.id).toBe('reply_only');
     expect(preferred.primaryOption?.label).toBe('Draft a short reply only');
     expect(fallback.primaryOption?.id).toBe('translate_forward_contact_archive');
+  });
+
+  it('surfaces v2 evidence: disposition, confidence band, and a review-log outcome', () => {
+    const apiTask = task('t_evidence', { proposed_disposition: 'silent' });
+    apiTask.confidence_band = 'trusted';
+    apiTask.outcome = { result_summary: 'Unsubscribed from Acme Weekly.', result_delivery: 'digest', changed_state: null };
+
+    const view = mapTaskToView(apiTask);
+    expect(view.disposition).toBe('silent');
+    expect(view.dispositionLabel).toBe('Silent');
+    expect(view.confidenceBand).toBe('trusted');
+    expect(view.confidenceLabel).toBe('Trusted');
+    expect(view.outcomeSummary).toBe('Unsubscribed from Acme Weekly.');
+  });
+
+  it('leaves evidence fields null when absent', () => {
+    const view = mapTaskToView(task('t_plain', { proposed_disposition: undefined }));
+    expect(view.disposition).toBeNull();
+    expect(view.dispositionLabel).toBeNull();
+    expect(view.confidenceBand).toBeNull();
+    expect(view.confidenceLabel).toBeNull();
+    expect(view.outcomeSummary).toBeNull();
   });
 });
 

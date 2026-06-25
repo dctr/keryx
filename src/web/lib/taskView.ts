@@ -1,5 +1,5 @@
-import type { ActionItem, ActionOption, BlastRadius, Reversibility, Urgency } from '../../schemas/actionItem';
-import type { ApiTask, MalformedTaskError } from './api';
+import type { ActionItem, ActionOption, BlastRadius, Disposition, Reversibility, Urgency } from '../../schemas/actionItem';
+import type { ApiTask, ConfidenceBand, MalformedTaskError } from './api';
 
 export interface TaskCardView {
   id: string;
@@ -13,6 +13,11 @@ export interface TaskCardView {
   class: string;
   reversibility: Reversibility | null;
   blastRadius: BlastRadius | null;
+  disposition: Disposition | null;
+  dispositionLabel: string | null;
+  confidenceBand: ConfidenceBand | null;
+  confidenceLabel: string | null;
+  outcomeSummary: string | null;
   urgency: Urgency;
   urgencyLabel: string;
   urgencyRank: number;
@@ -42,7 +47,7 @@ const STATUS_LABELS: Record<string, string> = {
   todo: 'Needs User',
   ready: 'Queued',
   running: 'Running',
-  done: 'Completed',
+  done: 'Review log',
   archived: 'Dismissed',
   scheduled: 'Scheduled',
   review: 'In review',
@@ -69,11 +74,25 @@ const REVERSIBILITY_LABELS: Record<Reversibility, string> = {
   irreversible: 'Irreversible',
 };
 
+const DISPOSITION_LABELS: Record<Disposition, string> = {
+  silent: 'Silent',
+  review: 'Review',
+  interrupt: 'Interrupt',
+};
+
+const CONFIDENCE_LABELS: Record<ConfidenceBand, string> = {
+  cold: 'Cold',
+  warming: 'Warming',
+  trusted: 'Trusted',
+};
+
 export function mapTaskToView(task: ApiTask): TaskCardView {
   const item = task.action_item;
   const status = normaliseStatus(task.status);
   const deadlineMs = parseDate(item.deadline);
   const primaryOption = primaryOptionFor(item);
+  const disposition = item.proposed_disposition ?? null;
+  const confidenceBand = task.confidence_band ?? null;
 
   return {
     id: task.id,
@@ -87,6 +106,11 @@ export function mapTaskToView(task: ApiTask): TaskCardView {
     class: item.class,
     reversibility: primaryOption?.reversibility ?? null,
     blastRadius: primaryOption?.blast_radius ?? null,
+    disposition,
+    dispositionLabel: disposition ? DISPOSITION_LABELS[disposition] : null,
+    confidenceBand,
+    confidenceLabel: confidenceBand ? CONFIDENCE_LABELS[confidenceBand] : null,
+    outcomeSummary: task.outcome?.result_summary ?? null,
     urgency: item.urgency,
     urgencyLabel: urgencyLabelFor(item.urgency),
     urgencyRank: URGENCY_RANKS[item.urgency],
