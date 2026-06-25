@@ -8,6 +8,7 @@ import { HermesCliAdapter, parseHermesVersion } from '../hermes/adapter';
 import type { HermesRunner, KanbanTask } from '../hermes/types';
 import { deriveBand, type TrackRecord } from '../policy/confidence';
 import { decideDisposition } from '../policy/disposition';
+import { composeDigest, extractOutcomes, type DigestCadence } from './digest';
 import { actionItemSchema, type ActionItem, type ActionOption, validateActionItem } from '../schemas/actionItem';
 import { collectorStateSchema, validateCollectorState } from '../schemas/collectorState';
 import { dismissalDecisionSchema, validateDismissalDecision } from '../schemas/dismissalDecision';
@@ -75,6 +76,8 @@ Mutating commands:
                                   Append the user's execution decision and promote a card
   dismiss <task_id> [--reason <text>]
                                   Append an exact-item dismissal and archive a card
+  digest [--preview] [--cadence daily|weekly]
+                                  Render the relevancy-grouped digest of silent outcomes (--preview only for now)
 
 Global options:
   --help, -h                     Show this help
@@ -181,6 +184,8 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
         return executeCard(parsed, adapter, options.now ?? (() => new Date()));
       case 'dismiss':
         return dismissCard(parsed, adapter, options.now ?? (() => new Date()));
+      case 'digest':
+        return digest(parsed, adapter);
       case 'doctor':
         return doctor(config, adapter, { cwd: options.cwd ?? process.cwd(), env: options.env ?? process.env });
       default:
@@ -644,6 +649,37 @@ function dismissResult(taskId: string, status: string, action: string, actionIte
     external_id: actionItem.external_id,
     idempotency_key: actionItem.idempotency_key,
   };
+}
+
+// Reads silent outcomes from the review log (done cards), composes the relevancy-grouped
+// digest, and (Phase 3) renders it with --preview. Sending via `hermes send` is a Phase 6
+// adapter shape; until then a non-preview invocation errors clearly rather than no-op.
+async function digest(parsed: ParsedArgs, adapter: HermesCliAdapter): Promise<CommandResult> {
+  const cadence = parseCadence(stringFlag(parsed, 'cadence'));
+  if (!cadence.ok) {
+    return cadence.error;
+  }
+
+  if (parsed.flags.get('preview') !== true) {
+    return fail(
+      'FAIL digest send is not available yet (Phase 6 wires `hermes send`); rerun with --preview to render without sending',
+    );
+  }
+
+  const tasks = await adapter.listTasks({ status: 'done' });
+  const outcomes = extractOutcomes(tasks);
+  const result = composeDigest(outcomes, { cadence: cadence.value });
+  return ok(result.message);
+}
+
+function parseCadence(value: string | undefined): { ok: true; value: DigestCadence } | { ok: false; error: CommandResult } {
+  if (value === undefined) {
+    return { ok: true, value: 'daily' };
+  }
+  if (value === 'daily' || value === 'weekly') {
+    return { ok: true, value };
+  }
+  return { ok: false, error: fail('FAIL digest --cadence must be daily or weekly', 2) };
 }
 
 interface DoctorOptions {
@@ -1152,7 +1188,7 @@ function stringFlag(parsed: ParsedArgs, name: string): string | undefined {
 }
 
 function isBooleanFlag(name: string): boolean {
-  return name === 'json' || name === 'dispatch';
+  return name === 'json' || name === 'dispatch' || name === 'preview';
 }
 
 function normaliseTaskStatus(task: KanbanTask): string {
