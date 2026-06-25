@@ -8,7 +8,13 @@ import { HermesCliAdapter, parseHermesVersion } from '../hermes/adapter';
 import type { HermesRunner, KanbanTask } from '../hermes/types';
 import { actionItemSchema, type ActionItem, validateActionItem } from '../schemas/actionItem';
 import { collectorStateSchema, validateCollectorState } from '../schemas/collectorState';
+import { dismissalDecisionSchema } from '../schemas/dismissalDecision';
 import { executionDecisionSchema, validateExecutionDecision } from '../schemas/executionDecision';
+import { notificationSchema } from '../schemas/notification';
+import { outcomeSchema } from '../schemas/outcome';
+import { policySchema } from '../schemas/policy';
+import { policyDecisionSchema } from '../schemas/policyDecision';
+import { regretSchema } from '../schemas/regret';
 import {
   type CommandResult,
   type CronJobSummary,
@@ -47,7 +53,7 @@ Read-only commands:
   show <task_id>                 Show a Keryx Kanban card and validate its JSON body
   cron-status                    Summarise keryx-* collector cron jobs
   delivery-targets [--json]      List Hermes delivery targets
-  schema <action-item|execution-decision|collector-state>
+  schema <action-item|execution-decision|dismissal-decision|policy-decision|outcome|policy|notification|regret|collector-state>
                                   Print a canonical Keryx JSON schema
   template-card [--source <source>] [--collector <collector>]
                                   Print a schema-valid action-item template
@@ -78,17 +84,43 @@ const COLLECTOR_CREATOR_PLUGIN_SKILL = 'keryx:keryx-collector-creator';
 const SCHEMA_COMMANDS = {
   'action-item': {
     schema: actionItemSchema,
-    fileUrl: new URL('../../schemas/action-item.v1.schema.json', import.meta.url),
+    fileUrl: new URL('../../schemas/action-item.v2.schema.json', import.meta.url),
   },
   'execution-decision': {
     schema: executionDecisionSchema,
     fileUrl: new URL('../../schemas/execution-decision.v1.schema.json', import.meta.url),
+  },
+  'dismissal-decision': {
+    schema: dismissalDecisionSchema,
+    fileUrl: new URL('../../schemas/dismissal-decision.v1.schema.json', import.meta.url),
+  },
+  'policy-decision': {
+    schema: policyDecisionSchema,
+    fileUrl: new URL('../../schemas/policy-decision.v1.schema.json', import.meta.url),
+  },
+  outcome: {
+    schema: outcomeSchema,
+    fileUrl: new URL('../../schemas/outcome.v1.schema.json', import.meta.url),
+  },
+  policy: {
+    schema: policySchema,
+    fileUrl: new URL('../../schemas/policy.v1.schema.json', import.meta.url),
+  },
+  notification: {
+    schema: notificationSchema,
+    fileUrl: new URL('../../schemas/notification.v1.schema.json', import.meta.url),
+  },
+  regret: {
+    schema: regretSchema,
+    fileUrl: new URL('../../schemas/regret.v1.schema.json', import.meta.url),
   },
   'collector-state': {
     schema: collectorStateSchema,
     fileUrl: new URL('../../schemas/collector-state.v1.schema.json', import.meta.url),
   },
 } as const;
+
+const SCHEMA_NAMES = Object.keys(SCHEMA_COMMANDS).join(', ');
 
 const PROJECT_ROOT = resolveProjectRoot(dirname(fileURLToPath(import.meta.url)));
 
@@ -172,7 +204,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
 function schemaCommand(name: string | undefined): CommandResult {
   if (!name || !(name in SCHEMA_COMMANDS)) {
-    return fail('FAIL schema requires one of: action-item, execution-decision, collector-state', 2);
+    return fail(`FAIL schema requires one of: ${SCHEMA_NAMES}`, 2);
   }
 
   const schema = SCHEMA_COMMANDS[name as keyof typeof SCHEMA_COMMANDS];
@@ -188,16 +220,17 @@ function templateCard(parsed: ParsedArgs, now: () => Date): CommandResult {
   const collector = stringFlag(parsed, 'collector') ?? `keryx-${source}`;
   const externalId = `${source}:replace-me`;
   const card: ActionItem = {
-    schema: 'keryx.action_item.v1',
+    schema: 'keryx.action_item.v2',
     source,
     collector,
+    class: `${source}:replace-me`,
     external_id: externalId,
     idempotency_key: `keryx:${source}:replace-me`,
     origin_descriptor: `${source} item replace-me`,
     title: `Review ${source} item`,
     summary: 'Replace this summary with compact candidate facts. Do not paste raw private source content.',
-    autonomy: 'minimal',
     urgency: 'normal',
+    proposed_disposition: 'review',
     deadline: null,
     risk: null,
     source_refs: [{ type: source, id: 'replace-me' }],
@@ -208,6 +241,9 @@ function templateCard(parsed: ParsedArgs, now: () => Date): CommandResult {
         requires_input: false,
         input_hint: null,
         delivery: null,
+        reversibility: 'reversible',
+        blast_radius: 'self',
+        undo_prompt: 'Describe how to reverse the approved action if it needs to be undone.',
         execution_prompt: 'Re-query the source system, verify the item still needs action, then perform the approved action safely.',
       },
     ],

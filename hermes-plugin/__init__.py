@@ -34,7 +34,7 @@ def _candidate_roots() -> Iterable[Path]:
 def _is_keryx_root(path: Path) -> bool:
     return (
         (path / "bin" / "opsctl").is_file()
-        and (path / "schemas" / "action-item.v1.schema.json").is_file()
+        and (path / "schemas" / "action-item.v2.schema.json").is_file()
         and (path / "skills" / "keryx" / "keryx-worker" / "SKILL.md").is_file()
     )
 
