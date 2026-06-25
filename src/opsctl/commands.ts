@@ -10,13 +10,13 @@ import { deriveBand, type TrackRecord } from '../policy/confidence';
 import { decideDisposition } from '../policy/disposition';
 import { actionItemSchema, type ActionItem, type ActionOption, validateActionItem } from '../schemas/actionItem';
 import { collectorStateSchema, validateCollectorState } from '../schemas/collectorState';
-import { dismissalDecisionSchema } from '../schemas/dismissalDecision';
+import { dismissalDecisionSchema, validateDismissalDecision } from '../schemas/dismissalDecision';
 import { executionDecisionSchema, validateExecutionDecision } from '../schemas/executionDecision';
 import { notificationSchema } from '../schemas/notification';
-import { outcomeSchema } from '../schemas/outcome';
+import { outcomeSchema, validateOutcome } from '../schemas/outcome';
 import type { Outcome } from '../schemas/outcome';
-import { policySchema } from '../schemas/policy';
-import { policyDecisionSchema, type PolicyDecision } from '../schemas/policyDecision';
+import { policySchema, validatePolicy } from '../schemas/policy';
+import { policyDecisionSchema, type PolicyDecision, validatePolicyDecision } from '../schemas/policyDecision';
 import { regretSchema } from '../schemas/regret';
 import {
   type CommandResult,
@@ -63,6 +63,10 @@ Read-only commands:
   validate-card <file>           Validate an action-item JSON card body
   validate-decision <file>       Validate an execution-decision JSON comment body
   validate-state <file>          Validate a collector-state JSON file
+  validate-policy-decision <file>  Validate a policy-decision JSON comment body
+  validate-outcome <file>        Validate an outcome JSON comment body
+  validate-policy <file>         Validate a collector policy JSON document
+  validate-dismissal <file>      Validate a dismissal-decision JSON comment body
 
 Mutating commands:
   create-card <file>              Validate and create a blocked Keryx Kanban card
@@ -153,6 +157,14 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
         return validateDecision(parsed.positionals[0]);
       case 'validate-state':
         return validateState(parsed.positionals[0]);
+      case 'validate-policy-decision':
+        return validatePolicyDecisionCommand(parsed.positionals[0]);
+      case 'validate-outcome':
+        return validateOutcomeCommand(parsed.positionals[0]);
+      case 'validate-policy':
+        return validatePolicyCommand(parsed.positionals[0]);
+      case 'validate-dismissal':
+        return validateDismissalCommand(parsed.positionals[0]);
       case 'create-card':
         return await createCard(parsed.positionals[0], adapter, options.now ?? (() => new Date()));
       case 'auto-execute':
@@ -301,6 +313,58 @@ function validateState(filePath: string | undefined): CommandResult {
   }
 
   return ok(`OK valid collector state: ${validation.value.source}`);
+}
+
+function validatePolicyDecisionCommand(filePath: string | undefined): CommandResult {
+  if (!filePath) {
+    return fail('FAIL validate-policy-decision requires a JSON file path', 2);
+  }
+
+  const validation = validatePolicyDecision(parseJsonFile(filePath));
+  if (!validation.ok) {
+    return fail(`FAIL invalid policy decision: ${filePath}\n${formatValidationErrors(validation.errors)}`);
+  }
+
+  return ok(`OK valid policy decision: ${validation.value.disposition}`);
+}
+
+function validateOutcomeCommand(filePath: string | undefined): CommandResult {
+  if (!filePath) {
+    return fail('FAIL validate-outcome requires a JSON file path', 2);
+  }
+
+  const validation = validateOutcome(parseJsonFile(filePath));
+  if (!validation.ok) {
+    return fail(`FAIL invalid outcome: ${filePath}\n${formatValidationErrors(validation.errors)}`);
+  }
+
+  return ok(`OK valid outcome: ${validation.value.executed_option_id}`);
+}
+
+function validatePolicyCommand(filePath: string | undefined): CommandResult {
+  if (!filePath) {
+    return fail('FAIL validate-policy requires a JSON file path', 2);
+  }
+
+  const validation = validatePolicy(parseJsonFile(filePath));
+  if (!validation.ok) {
+    return fail(`FAIL invalid policy: ${filePath}\n${formatValidationErrors(validation.errors)}`);
+  }
+
+  return ok(`OK valid policy: ${validation.value.collector}`);
+}
+
+function validateDismissalCommand(filePath: string | undefined): CommandResult {
+  if (!filePath) {
+    return fail('FAIL validate-dismissal requires a JSON file path', 2);
+  }
+
+  const validation = validateDismissalDecision(parseJsonFile(filePath));
+  if (!validation.ok) {
+    return fail(`FAIL invalid dismissal decision: ${filePath}\n${formatValidationErrors(validation.errors)}`);
+  }
+
+  return ok(`OK valid dismissal decision: ${validation.value.dismissed_external_id}`);
 }
 
 async function createCard(filePath: string | undefined, adapter: HermesCliAdapter, now: () => Date): Promise<CommandResult> {
