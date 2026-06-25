@@ -11,6 +11,7 @@ import { decideDisposition } from '../policy/disposition';
 import { loadPolicy } from '../policy/policyStore';
 import { aggregateTrackRecord } from '../policy/trackRecord';
 import { composeDigest, extractOutcomes, type DigestCadence } from './digest';
+import { computeMetrics, formatMetrics, type MetricsWindow } from '../policy/metrics';
 import { actionItemSchema, type ActionItem, type ActionOption, validateActionItem } from '../schemas/actionItem';
 import { collectorStateSchema, validateCollectorState } from '../schemas/collectorState';
 import { dismissalDecisionSchema, validateDismissalDecision } from '../schemas/dismissalDecision';
@@ -80,6 +81,8 @@ Mutating commands:
                                   Append an exact-item dismissal and archive a card
   digest [--preview] [--cadence daily|weekly]
                                   Render the relevancy-grouped digest of silent outcomes (--preview only for now)
+  metrics [--window <range>] [--json]
+                                  Report attention-economics metrics derived from the Kanban audit trail
   policy show <collector> [--json]
                                   Show a collector's active/shadow rules and derived track-record bands
   policy validate <file>          Validate a collector policy JSON document
@@ -192,6 +195,8 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
         return dismissCard(parsed, adapter, options.now ?? (() => new Date()));
       case 'digest':
         return digest(parsed, adapter);
+      case 'metrics':
+        return metrics(parsed, adapter, options.now ?? (() => new Date()));
       case 'policy':
         return await policyCommand(parsed, adapter, options, options.now ?? (() => new Date()));
       case 'doctor':
@@ -743,6 +748,55 @@ function parseCadence(value: string | undefined): { ok: true; value: DigestCaden
     return { ok: true, value };
   }
   return { ok: false, error: fail('FAIL digest --cadence must be daily or weekly', 2) };
+}
+
+// Attention-economics metrics (PRD §7.9, §11; D7) read from the live Kanban audit trail.
+// No second store: every figure derives from task status + the validated machine comments
+// Keryx already writes. `--window <range>` (e.g. 7d, 24h, 2w) scopes to comments newer than
+// now - range; `--json` emits the full KeryxMetrics object for the UI/automation.
+async function metrics(parsed: ParsedArgs, adapter: HermesCliAdapter, now: () => Date): Promise<CommandResult> {
+  const windowResult = parseMetricsWindow(stringFlag(parsed, 'window'), now);
+  if (!windowResult.ok) {
+    return windowResult.error;
+  }
+
+  const tasks = await adapter.listTasks();
+  const computed = computeMetrics(tasks, windowResult.value);
+
+  if (parsed.flags.get('json') === true) {
+    return ok(json(computed));
+  }
+  return ok(formatMetrics(computed));
+}
+
+// Parses a relative duration suffix (s/m/h/d/w) into a metrics window anchored at `now`.
+// An empty range means all-time (unbounded). Rejects anything that is not <integer><unit>.
+function parseMetricsWindow(
+  value: string | undefined,
+  now: () => Date,
+): { ok: true; value: MetricsWindow } | { ok: false; error: CommandResult } {
+  if (value === undefined) {
+    return { ok: true, value: {} };
+  }
+
+  const match = value.trim().match(/^(\d+)\s*(s|m|h|d|w)$/i);
+  if (!match) {
+    return {
+      ok: false,
+      error: fail('FAIL metrics --window must be a relative range like 24h, 7d, or 2w', 2),
+    };
+  }
+
+  const amount = Number.parseInt(match[1], 10);
+  const unitMs: Record<string, number> = {
+    s: 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000,
+    w: 7 * 24 * 60 * 60 * 1000,
+  };
+  const span = amount * unitMs[match[2].toLowerCase()];
+  return { ok: true, value: { from: new Date(now().getTime() - span) } };
 }
 
 // `policy` subcommands (PRD §7.7): inspect a collector's human-approved rule store and
