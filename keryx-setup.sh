@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 ROOT_DIR=$SCRIPT_DIR
 CONFIG_PATH=${KERYX_CONFIG:-"$ROOT_DIR/keryx.config.json"}
 HERMES_BIN=${HERMES_BIN:-hermes}
@@ -61,9 +61,10 @@ resolve_home() {
 }
 
 expand_tilde() {
+  tilde_prefix='~'
   case "$1" in
-    '~') printf '%s\n' "$HOME" ;;
-    '~/'*) printf '%s/%s\n' "$HOME" "${1#~/}" ;;
+    "$tilde_prefix") printf '%s\n' "$HOME" ;;
+    "$tilde_prefix"/*) path_without_tilde=${1#"$tilde_prefix"/}; printf '%s/%s\n' "$HOME" "$path_without_tilde" ;;
     *) printf '%s\n' "$1" ;;
   esac
 }

@@ -49,6 +49,16 @@ Open `http://127.0.0.1:4173`.
 
 `npm start` runs the local Keryx server. By default it binds to `127.0.0.1` on port `4173`.
 
+## Development checks
+
+Before sending local changes for review, run the aggregate quality check:
+
+```sh
+npm run check
+```
+
+It runs lint checks and the Vitest suite. Also run `npm run typecheck`, `npm run build`, or `npm run e2e` when changing Svelte/UI, bundling/server entrypoints, or user-visible inbox behaviour.
+
 ## Setup script
 
 Run setup once after cloning, and again after changing Hermes homes or Keryx delivery settings:

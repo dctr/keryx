@@ -15,7 +15,6 @@ import { validateActionItem } from '../schemas/actionItem';
 import { validateDismissalDecision } from '../schemas/dismissalDecision';
 import { validateExecutionDecision } from '../schemas/executionDecision';
 import { validateOutcome } from '../schemas/outcome';
-import { validatePolicyDecision } from '../schemas/policyDecision';
 
 // The resolver tags everything it writes with this marker so a second run never
 // double-resolves the same card (the outcome's delivered_via field carries it).

@@ -154,7 +154,7 @@ export async function dismissTask(taskId: string, reason: string): Promise<TaskM
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
-  const payload = (await parseJson(response)) as unknown;
+  const payload = await parseJson(response);
 
   if (!response.ok || isErrorPayload(payload)) {
     throw new Error(errorMessageFromPayload(payload) ?? `${response.status} ${response.statusText}`.trim());

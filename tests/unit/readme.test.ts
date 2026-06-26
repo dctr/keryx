@@ -19,6 +19,7 @@ describe('user-facing README', () => {
       'npm install',
       './keryx-setup.sh',
       'npm start',
+      'npm run check',
       'hermes keryx doctor',
       './bin/opsctl doctor',
     ]) {

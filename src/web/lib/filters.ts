@@ -2,7 +2,7 @@ import type { TaskCardView } from './taskView';
 import { sortTaskViews } from './taskView';
 
 export type TaskViewKey = 'needsYou' | 'running' | 'reviewLog' | 'dismissed';
-export type SourceFilter = 'all' | string;
+export type SourceFilter = string;
 
 export interface TaskFilters {
   view: TaskViewKey;

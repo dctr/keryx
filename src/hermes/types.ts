@@ -24,7 +24,7 @@ export interface KanbanComment {
 export interface KanbanTask {
   id: string;
   title?: string;
-  status?: KanbanStatus | string;
+  status?: string;
   body?: string;
   tenant?: string | null;
   created_by?: string | null;

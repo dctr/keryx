@@ -6,7 +6,7 @@ export function cronJobCandidates(value: unknown): unknown[] {
   for (const key of ['jobs', 'cron_jobs', 'items', 'results']) {
     if (Array.isArray(value[key])) return value[key] as unknown[];
   }
-  return Object.values(value).flatMap((entry) => (Array.isArray(entry) ? entry : []));
+  return Object.values(value).flatMap((entry) => (Array.isArray(entry) ? (entry as unknown[]) : []));
 }
 
 export function inferCronEnabled(value: Record<string, unknown>): boolean {

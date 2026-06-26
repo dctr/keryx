@@ -10,7 +10,11 @@ Run from the repository root.
 
 ```sh
 npm install              # install dependencies
-npm run lint            # TypeScript check via tsc --noEmit
+npm run lint            # TypeScript, ESLint, and shell lint checks
+npm run lint:ts         # TypeScript compiler checks only
+npm run lint:eslint     # ESLint static analysis
+npm run lint:sh         # ShellCheck for keryx-setup.sh
+npm run check           # npm run lint && npm test
 npm run typecheck       # svelte-check plus TypeScript check
 npm test                # Vitest unit and integration tests (single run)
 npm run test:watch      # Vitest in watch mode (interactive use only)
@@ -25,8 +29,8 @@ hermes keryx doctor     # plugin health check after setup
 Before committing code changes, run at least:
 
 ```sh
-npm run lint
-npm test
+npm run check
+git diff --check
 ```
 
 Also run `npm run typecheck` when touching Svelte/UI or shared types, `npm run build` when changing bundling/server entrypoints, and `npm run e2e` when changing user-visible inbox behaviour.

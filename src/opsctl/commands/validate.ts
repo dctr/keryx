@@ -12,7 +12,9 @@ import { validateOutcome } from '../../schemas/outcome';
 import { validatePolicy } from '../../schemas/policy';
 import { validatePolicyDecision } from '../../schemas/policyDecision';
 
-type ValidateFn<T> = (raw: unknown) => import('../../schemas/validate').ValidationResult<T>;
+import type { ValidationResult } from '../../schemas/validate';
+
+type ValidateFn<T> = (raw: unknown) => ValidationResult<T>;
 
 interface ValidateSpec<T> {
   cmd: string;

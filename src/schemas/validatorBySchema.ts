@@ -16,11 +16,11 @@ import { validateRegret } from './regret';
 type AnyValidator = (body: unknown) => ValidationResult<unknown>;
 
 const VALIDATOR_MAP: Record<string, AnyValidator> = {
-  'keryx.dismissal_decision.v1': validateDismissalDecision as AnyValidator,
-  'keryx.execution_decision.v1': validateExecutionDecision as AnyValidator,
-  'keryx.outcome.v1': validateOutcome as AnyValidator,
-  'keryx.policy_decision.v1': validatePolicyDecision as AnyValidator,
-  'keryx.regret.v1': validateRegret as AnyValidator,
+  'keryx.dismissal_decision.v1': validateDismissalDecision,
+  'keryx.execution_decision.v1': validateExecutionDecision,
+  'keryx.outcome.v1': validateOutcome,
+  'keryx.policy_decision.v1': validatePolicyDecision,
+  'keryx.regret.v1': validateRegret,
 };
 
 /**

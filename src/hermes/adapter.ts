@@ -499,7 +499,7 @@ function parseJson(json: string): unknown {
   try {
     return JSON.parse(json);
   } catch (error) {
-    throw new Error(`Invalid Hermes JSON output: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Invalid Hermes JSON output: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
 }
 

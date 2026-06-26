@@ -1,6 +1,6 @@
 // policy command group: show, validate, propose, revoke.
 
-import { HermesCliAdapter } from '../../hermes/adapter';
+import type { HermesCliAdapter } from '../../hermes/adapter';
 import { deriveBand, type Band, type TrackRecord } from '../../policy/confidence';
 import { loadPolicy } from '../../policy/policyStore';
 import { aggregateTrackRecord } from '../../policy/trackRecord';

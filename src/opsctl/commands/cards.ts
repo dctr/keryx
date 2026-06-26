@@ -4,14 +4,14 @@
 
 import { readFileSync } from 'node:fs';
 
-import { HermesCliAdapter } from '../../hermes/adapter';
+import type { HermesCliAdapter } from '../../hermes/adapter';
 import type { ActionItem, ActionOption } from '../../schemas/actionItem';
 import { actionItemSchema, validateActionItem } from '../../schemas/actionItem';
 import { collectorStateSchema } from '../../schemas/collectorState';
 import { dismissalDecisionSchema } from '../../schemas/dismissalDecision';
 import { executionDecisionSchema } from '../../schemas/executionDecision';
 import { notificationSchema } from '../../schemas/notification';
-import { outcomeSchema, validateOutcome } from '../../schemas/outcome';
+import { outcomeSchema } from '../../schemas/outcome';
 import type { Outcome } from '../../schemas/outcome';
 import { policySchema } from '../../schemas/policy';
 import { policyDecisionSchema } from '../../schemas/policyDecision';
@@ -29,7 +29,7 @@ import {
   interruptDedupeKey,
   interruptTier,
 } from '../interrupt';
-import type { CommandResult, CronJobSummary } from '../output';
+import type { CommandResult } from '../output';
 import { fail, formatCronJobs, formatDeliveryTargets, formatTasks, formatTaskShow, formatValidationErrors, json, ok } from '../output';
 import { collectorSource, normaliseCronJobs, parseJsonFile, type CommandContext, type RunOpsctlOptions, stringFlag, validateTaskBody } from '../shared';
 import { buildPolicyDecision } from '../builders';

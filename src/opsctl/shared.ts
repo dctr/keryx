@@ -66,7 +66,7 @@ export function parseJsonFile(filePath: string): unknown {
   try {
     return JSON.parse(readFileSync(filePath, 'utf8')) as unknown;
   } catch (error) {
-    throw new Error(`invalid JSON file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`invalid JSON file ${filePath}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
 }
 
@@ -89,7 +89,7 @@ import { fail } from './output';
 // Hermes argv as option-lookalikes. Mirrors the API route guard. Returns a
 // failing CommandResult (exit 2) when invalid, or undefined when acceptable.
 export function validateTaskIdArgument(taskId: string): CommandResult | undefined {
-  return taskId.trim().startsWith('-') ? fail('FAIL task id must not begin with \"-\"', 2) : undefined;
+  return taskId.trim().startsWith('-') ? fail('FAIL task id must not begin with "-"', 2) : undefined;
 }
 
 // ---------------------------------------------------------------------------

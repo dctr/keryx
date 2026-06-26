@@ -6,7 +6,8 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { HermesCliAdapter, parseHermesVersion } from '../hermes/adapter';
+import { parseHermesVersion } from '../hermes/adapter';
+import type { HermesCliAdapter } from '../hermes/adapter';
 import { isPlainObject } from '../util/object';
 import type { KeryxConfig } from '../config';
 import {
@@ -119,8 +120,7 @@ export async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, opt
       lines.push({ level: 'OK', check: 'hermes', message: `board ${config.board} reachable; ${blocked.length} blocked Keryx cards visible` });
     }
   } else {
-    const error = blockedResult.reason;
-    lines.push({ level: 'FAIL', check: 'hermes', message: error instanceof Error ? error.message : String(error) });
+    lines.push({ level: 'FAIL', check: 'hermes', message: reasonToString(blockedResult.reason) });
   }
 
   // delivery-targets
@@ -132,8 +132,7 @@ export async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, opt
       message: deliveryTargets.length > 0 ? `${deliveryTargets.length} target(s) available` : 'no Hermes delivery targets available',
     });
   } else {
-    const error = deliveryResult.reason;
-    lines.push({ level: 'FAIL', check: 'delivery-targets', message: error instanceof Error ? error.message : String(error) });
+    lines.push({ level: 'FAIL', check: 'delivery-targets', message: reasonToString(deliveryResult.reason) });
   }
 
   // cron
@@ -145,8 +144,7 @@ export async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, opt
       message: jobs.length > 0 ? `${jobs.length} keryx-* collector job(s) visible` : 'no keryx-* collector cron jobs configured',
     });
   } else {
-    const error = cronResult.reason;
-    lines.push({ level: 'WARN', check: 'cron', message: `could not list cron jobs: ${error instanceof Error ? error.message : String(error)}` });
+    lines.push({ level: 'WARN', check: 'cron', message: `could not list cron jobs: ${reasonToString(cronResult.reason)}` });
   }
 
   return { exitCode: lines.some((line) => line.level === 'FAIL') ? 1 : 0, stdout: formatDoctorLines(lines), stderr: '' };
@@ -155,6 +153,10 @@ export async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, opt
 // ---------------------------------------------------------------------------
 // Version check
 // ---------------------------------------------------------------------------
+
+function reasonToString(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
 
 // Verifies the Hermes CLI is at least MINIMUM_HERMES_VERSION. Only invoked once the
 // hermes binary has been located. Degrades gracefully: a non-zero exit or unparsable

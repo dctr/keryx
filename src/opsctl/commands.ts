@@ -12,7 +12,7 @@
 //   src/opsctl/commands/regretCmd.ts
 //   src/opsctl/doctor.ts
 
-import { type KeryxConfig, loadConfig } from '../config';
+import { loadConfig } from '../config';
 import { HermesCliAdapter } from '../hermes/adapter';
 import { type CommandResult, fail, ok } from './output';
 import { type CommandContext, type ParsedArgs, type RunOpsctlOptions } from './shared';
