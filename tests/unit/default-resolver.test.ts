@@ -129,10 +129,19 @@ describe('buildAutoResolutionOutcome', () => {
 });
 
 describe('opsctl default-resolve command', () => {
+  // Models the live two-call contract: `list --json` omits per-task comments; only
+  // `show --json` embeds them. default-resolve enriches via show before reading comments.
   function boardRunner(tasks: KanbanTask[]): ReturnType<typeof vi.fn<HermesRunner>> {
     return vi.fn<HermesRunner>(async (request) => {
       if (request.args[3] === 'list') {
-        return { stdout: JSON.stringify(tasks), stderr: '', exitCode: 0 };
+        const stripped = tasks.map(({ comments: _comments, ...rest }) => rest);
+        return { stdout: JSON.stringify(stripped), stderr: '', exitCode: 0 };
+      }
+      if (request.args[3] === 'show') {
+        const task = tasks.find((candidate) => candidate.id === request.args[4]);
+        return task
+          ? { stdout: JSON.stringify({ task }), stderr: '', exitCode: 0 }
+          : { stdout: '', stderr: `No fake task ${request.args[4]}`, exitCode: 1 };
       }
       if (request.args[3] === 'promote') {
         return { stdout: JSON.stringify({ id: request.args[4], status: 'ready' }), stderr: '', exitCode: 0 };
@@ -153,7 +162,7 @@ describe('opsctl default-resolve command', () => {
 
     expect(result.exitCode).toBe(0);
     const verbs = runner.mock.calls.map(([request]) => request.args[3]);
-    expect(verbs).toEqual(['list', 'comment', 'comment', 'promote']);
+    expect(verbs).toEqual(['list', 'show', 'comment', 'comment', 'promote']);
 
     const comments = runner.mock.calls.filter(([request]) => request.args[3] === 'comment').map(([request]) => JSON.parse(request.args[5]));
     const outcome = comments.find((body) => body.schema === 'keryx.outcome.v1');
@@ -181,7 +190,7 @@ describe('opsctl default-resolve command', () => {
 
     expect(result.exitCode).toBe(0);
     const verbs = runner.mock.calls.map(([request]) => request.args[3]);
-    expect(verbs).toEqual(['list', 'comment', 'comment', 'archive']);
+    expect(verbs).toEqual(['list', 'show', 'comment', 'comment', 'archive']);
 
     const comments = runner.mock.calls.filter(([request]) => request.args[3] === 'comment').map(([request]) => JSON.parse(request.args[5]));
     const dismissal = comments.find((body) => body.schema === 'keryx.dismissal_decision.v1');
@@ -202,7 +211,8 @@ describe('opsctl default-resolve command', () => {
     });
 
     expect(result.exitCode).toBe(0);
-    expect(runner.mock.calls.map(([request]) => request.args[3])).toEqual(['list']);
+    // list once + enrich the single card via show; no mutations beyond that.
+    expect(runner.mock.calls.map(([request]) => request.args[3])).toEqual(['list', 'show']);
     expect(JSON.parse(result.stdout).resolved).toEqual([]);
   });
 
@@ -218,7 +228,8 @@ describe('opsctl default-resolve command', () => {
     });
 
     expect(result.exitCode).toBe(0);
-    expect(runner.mock.calls.map(([request]) => request.args[3])).toEqual(['list']);
+    // list once + enrich the single card via show; --preview makes no mutations.
+    expect(runner.mock.calls.map(([request]) => request.args[3])).toEqual(['list', 'show']);
     const summary = JSON.parse(result.stdout);
     expect(summary.resolved).toEqual([
       { task_id: 't_exec', action: 'execute_option', option_id: 'translate_forward_contact_archive', status: 'planned' },

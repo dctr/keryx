@@ -324,10 +324,19 @@ function approvedTask(id: string): KanbanTask {
   };
 }
 
+// Models the live two-call contract: `list --json` omits per-task comments; only
+// `show --json` embeds them. Band derivation reads comments, so it enriches via show.
 function policyAwareRunner(tasks: KanbanTask[]) {
   return vi.fn<HermesRunner>(async (request) => {
     if (request.args[3] === 'list') {
-      return { stdout: JSON.stringify(tasks), stderr: '', exitCode: 0 };
+      const stripped = tasks.map(({ comments: _comments, ...rest }) => rest);
+      return { stdout: JSON.stringify(stripped), stderr: '', exitCode: 0 };
+    }
+    if (request.args[3] === 'show') {
+      const task = tasks.find((candidate) => candidate.id === request.args[4]);
+      return task
+        ? { stdout: JSON.stringify({ task }), stderr: '', exitCode: 0 }
+        : { stdout: '', stderr: `No fake task ${request.args[4]}`, exitCode: 1 };
     }
     if (request.args[3] === 'create') {
       return { stdout: JSON.stringify({ id: 't_state', title: stateChangingActionItem.title, status: 'ready' }), stderr: '', exitCode: 0 };
@@ -354,8 +363,11 @@ describe('opsctl create-card policy + band wiring', () => {
 
     expect(result.exitCode).toBe(0);
     const verbs = runner.mock.calls.map(([request]) => request.args[3]);
-    expect(verbs).toEqual(['list', 'create', 'comment', 'promote']);
-    const decision = JSON.parse(runner.mock.calls[2][0].args[5]) as unknown;
+    // Band derivation enriches each of the 10 history cards via show (list omits comments live).
+    expect(verbs.filter((verb) => verb === 'show')).toHaveLength(10);
+    expect(verbs.filter((verb) => verb !== 'show')).toEqual(['list', 'create', 'comment', 'promote']);
+    const commentCall = runner.mock.calls.find(([request]) => request.args[3] === 'comment');
+    const decision = JSON.parse(commentCall![0].args[5]) as unknown;
     const validation = validatePolicyDecision(decision);
     expect(validation.ok).toBe(true);
     if (validation.ok) {
@@ -378,9 +390,12 @@ describe('opsctl create-card policy + band wiring', () => {
 
     expect(result.exitCode).toBe(0);
     const verbs = runner.mock.calls.map(([request]) => request.args[3]);
+    // Band derivation enriches each of the 10 history cards via show (list omits comments live).
+    expect(verbs.filter((verb) => verb === 'show')).toHaveLength(10);
     // blocked review path with an extra shadow comment after assign
-    expect(verbs).toEqual(['list', 'create', 'block', 'assign', 'comment']);
-    const decision = JSON.parse(runner.mock.calls[4][0].args[5]) as unknown;
+    expect(verbs.filter((verb) => verb !== 'show')).toEqual(['list', 'create', 'block', 'assign', 'comment']);
+    const commentCall = runner.mock.calls.find(([request]) => request.args[3] === 'comment');
+    const decision = JSON.parse(commentCall![0].args[5]) as unknown;
     const validation = validatePolicyDecision(decision);
     expect(validation.ok).toBe(true);
     if (validation.ok) {
@@ -420,13 +435,19 @@ const interruptActionItem: ActionItem = sampleActionItem({
   ui: { primary_option_id: 'translate_forward_contact_archive', display_group: 'Needs decision' },
 });
 
+// Models the live two-call contract: `list --json` omits per-task comments; only
+// `show --json` embeds them. Interrupt dedupe/budget reads notification comments, so
+// createInterruptCard enriches the board via show.
 function interruptRunner(): ReturnType<typeof vi.fn<HermesRunner>> {
   return vi.fn<HermesRunner>(async (request) => {
     if (request.args[3] === 'create') {
       return { stdout: JSON.stringify({ id: 't_int', title: interruptActionItem.title, status: 'blocked' }), stderr: '', exitCode: 0 };
     }
     if (request.args[3] === 'list') {
-      return { stdout: JSON.stringify([{ id: 't_int', status: 'blocked', comments: [] }]), stderr: '', exitCode: 0 };
+      return { stdout: JSON.stringify([{ id: 't_int', status: 'blocked' }]), stderr: '', exitCode: 0 };
+    }
+    if (request.args[3] === 'show') {
+      return { stdout: JSON.stringify({ task: { id: 't_int', status: 'blocked', comments: [] } }), stderr: '', exitCode: 0 };
     }
     if (request.args[0] === 'send') {
       return { stdout: 'sent', stderr: '', exitCode: 0 };
@@ -447,8 +468,8 @@ describe('opsctl create-card interrupt delivery', () => {
 
     expect(result.exitCode).toBe(0);
     const calls = runner.mock.calls.map(([request]) => request.args);
-    // create (already blocked) -> assign -> list (dedupe/budget) -> send -> comment
-    expect(calls.map((args) => (args[0] === 'send' ? 'send' : args[3]))).toEqual(['create', 'assign', 'list', 'send', 'comment']);
+    // create (already blocked) -> assign -> list + show (dedupe/budget enrich) -> send -> comment
+    expect(calls.map((args) => (args[0] === 'send' ? 'send' : args[3]))).toEqual(['create', 'assign', 'list', 'show', 'send', 'comment']);
 
     const sendArgs = calls.find((args) => args[0] === 'send');
     expect(sendArgs?.slice(0, 3)).toEqual(['send', '--to', 'telegram']);
@@ -481,29 +502,26 @@ describe('opsctl create-card interrupt delivery', () => {
   });
 
   it('does not push twice when the card already carries the interrupt notification (dedupe)', async () => {
+    const notificationComment = {
+      body: JSON.stringify({
+        schema: 'keryx.notification.v1',
+        channel: 'interrupt',
+        target: 'telegram',
+        sent_at: '2026-06-26T01:00:00.000Z',
+        dedupe_key: 'keryx:interrupt:urgent:t_int',
+      }),
+    };
+    // Live two-call contract: the notification comment is visible only via show, not list.
     const runner = vi.fn<HermesRunner>(async (request) => {
       if (request.args[3] === 'create') {
         return { stdout: JSON.stringify({ id: 't_int', title: interruptActionItem.title, status: 'blocked' }), stderr: '', exitCode: 0 };
       }
       if (request.args[3] === 'list') {
+        return { stdout: JSON.stringify([{ id: 't_int', status: 'blocked' }]), stderr: '', exitCode: 0 };
+      }
+      if (request.args[3] === 'show') {
         return {
-          stdout: JSON.stringify([
-            {
-              id: 't_int',
-              status: 'blocked',
-              comments: [
-                {
-                  body: JSON.stringify({
-                    schema: 'keryx.notification.v1',
-                    channel: 'interrupt',
-                    target: 'telegram',
-                    sent_at: '2026-06-26T01:00:00.000Z',
-                    dedupe_key: 'keryx:interrupt:urgent:t_int',
-                  }),
-                },
-              ],
-            },
-          ]),
+          stdout: JSON.stringify({ task: { id: 't_int', status: 'blocked', comments: [notificationComment] } }),
           stderr: '',
           exitCode: 0,
         };

@@ -149,12 +149,28 @@ describe('opsctl digest command', () => {
     completed_at: '2026-06-25T08:00:00+10:00',
   };
 
+  // Models the live two-call contract for a board carrying one done card with the outcome
+  // comment: `list --json` omits comments; `show --json` embeds them. An optional handler
+  // (e.g. for `send`) takes precedence so individual tests can intercept delivery.
+  function doneBoardRunner(extra?: (args: string[]) => { stdout: string; stderr: string; exitCode: number } | null) {
+    const taskWithComments = { id: 't_done', status: 'done', comments: [{ body: JSON.stringify(outcomeComment) }] };
+    return vi.fn<HermesRunner>(async (request) => {
+      const intercepted = extra?.(request.args);
+      if (intercepted) {
+        return intercepted;
+      }
+      if (request.args[3] === 'list') {
+        return { stdout: JSON.stringify([{ id: 't_done', status: 'done' }]), stderr: '', exitCode: 0 };
+      }
+      if (request.args[3] === 'show') {
+        return { stdout: JSON.stringify({ task: taskWithComments }), stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+  }
+
   it('renders a grouped digest with --preview without sending', async () => {
-    const runner = vi.fn<HermesRunner>(async () => ({
-      stdout: JSON.stringify([{ id: 't_done', status: 'done', comments: [{ body: JSON.stringify(outcomeComment) }] }]),
-      stderr: '',
-      exitCode: 0,
-    }));
+    const runner = doneBoardRunner();
 
     const result = await runOpsctl(['digest', '--preview'], {
       config: loadConfig({ env: {}, configPath: null }),
@@ -181,11 +197,7 @@ describe('opsctl digest command', () => {
   });
 
   it('fails clearly when asked to send without a configured notify_target', async () => {
-    const runner = vi.fn<HermesRunner>(async () => ({
-      stdout: JSON.stringify([{ id: 't_done', status: 'done', comments: [{ body: JSON.stringify(outcomeComment) }] }]),
-      stderr: '',
-      exitCode: 0,
-    }));
+    const runner = doneBoardRunner();
 
     const result = await runOpsctl(['digest'], {
       config: loadConfig({ env: {}, configPath: null }),
@@ -200,16 +212,9 @@ describe('opsctl digest command', () => {
   });
 
   it('sends the composed digest via hermes send to the configured notify_target', async () => {
-    const runner = vi.fn<HermesRunner>(async (request) => {
-      if (request.args[0] === 'send') {
-        return { stdout: 'sent', stderr: '', exitCode: 0 };
-      }
-      return {
-        stdout: JSON.stringify([{ id: 't_done', status: 'done', comments: [{ body: JSON.stringify(outcomeComment) }] }]),
-        stderr: '',
-        exitCode: 0,
-      };
-    });
+    const runner = doneBoardRunner((args) =>
+      args[0] === 'send' ? { stdout: 'sent', stderr: '', exitCode: 0 } : null,
+    );
 
     const result = await runOpsctl(['digest'], {
       config: { ...loadConfig({ env: {}, configPath: null }), notifyTarget: 'telegram' },
@@ -236,5 +241,44 @@ describe('opsctl digest command', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('[SILENT]');
     expect(runner.mock.calls.some(([request]) => request.args[0] === 'send')).toBe(false);
+  });
+
+  // Regression guard (live two-call contract): the real `hermes kanban list --json` does
+  // NOT embed per-task comments; only `show --json` does. The digest must therefore enrich
+  // list results via show before extracting outcomes. With a fake that mirrors the real
+  // contract (list strips comments, show includes them), the digest must still surface the
+  // outcome rather than rendering [SILENT].
+  it('surfaces outcomes when comments are available only via show, not via list', async () => {
+    const runner = vi.fn<HermesRunner>(async (request) => {
+      if (request.args[3] === 'list') {
+        // Live contract: list omits comments.
+        return {
+          stdout: JSON.stringify([{ id: 't_done', status: 'done' }]),
+          stderr: '',
+          exitCode: 0,
+        };
+      }
+      if (request.args[3] === 'show') {
+        // Live contract: show embeds comments.
+        return {
+          stdout: JSON.stringify({ task: { id: 't_done', status: 'done', comments: [{ body: JSON.stringify(outcomeComment) }] } }),
+          stderr: '',
+          exitCode: 0,
+        };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+
+    const result = await runOpsctl(['digest', '--preview'], {
+      config: loadConfig({ env: {}, configPath: null }),
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain('[SILENT]');
+    expect(result.stdout).toContain('📰 FACEBOOK');
+    expect(result.stdout).toContain('• Summarised 3 new posts.');
+    // The enriching path must have called show for the listed task.
+    expect(runner.mock.calls.some(([request]) => request.args[3] === 'show' && request.args[4] === 't_done')).toBe(true);
   });
 });

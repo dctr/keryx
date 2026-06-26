@@ -474,7 +474,10 @@ async function createInterruptCard(
   const tier = interruptTier(card.urgency);
   const dedupeKey = interruptDedupeKey(taskId, tier);
 
-  const tasks = await adapter.listTasks();
+  // Comments power both dedupe (hasInterruptNotification) and today's interrupt count
+  // (countInterruptsSentToday reads keryx.notification.v1 comments) — list alone omits
+  // them on the live CLI, so enrich via show.
+  const tasks = await adapter.listTasksWithComments();
   if (tasks.some((task) => task.id === taskId && hasInterruptNotification(task, dedupeKey))) {
     return created;
   }
@@ -566,7 +569,7 @@ async function resolveDisposition(
 }
 
 async function deriveBandForClass(card: ActionItem, adapter: HermesCliAdapter): Promise<Band> {
-  const tasks = await adapter.listTasks({ source: collectorSource(card.collector) });
+  const tasks = await adapter.listTasksWithComments({ source: collectorSource(card.collector) });
   const record = aggregateTrackRecord(tasks)[card.class] ?? emptyTrackRecord();
   return deriveBand(record);
 }
@@ -862,7 +865,7 @@ async function digest(parsed: ParsedArgs, adapter: HermesCliAdapter, options: Ru
     return cadence.error;
   }
 
-  const tasks = await adapter.listTasks({ status: 'done' });
+  const tasks = await adapter.listTasksWithComments({ status: 'done' });
   const outcomes = extractOutcomes(tasks);
   const result = composeDigest(outcomes, { cadence: cadence.value });
 
@@ -905,7 +908,7 @@ function parseCadence(value: string | undefined): { ok: true; value: DigestCaden
 // so a re-run never double-resolves and the digest can report it. --preview only plans.
 async function defaultResolve(parsed: ParsedArgs, adapter: HermesCliAdapter, now: () => Date): Promise<CommandResult> {
   const preview = parsed.flags.get('preview') === true;
-  const tasks = await adapter.listTasks();
+  const tasks = await adapter.listTasksWithComments();
   const resolvable = findResolvableInterrupts(tasks, now());
 
   const resolved: Array<Record<string, unknown>> = [];
@@ -981,7 +984,7 @@ async function metrics(parsed: ParsedArgs, adapter: HermesCliAdapter, now: () =>
     return windowResult.error;
   }
 
-  const tasks = await adapter.listTasks();
+  const tasks = await adapter.listTasksWithComments();
   const computed = computeMetrics(tasks, windowResult.value);
 
   if (parsed.flags.get('json') === true) {
@@ -1383,7 +1386,7 @@ async function policyShow(parsed: ParsedArgs, adapter: HermesCliAdapter, options
 
   // Bands are derived live from the Kanban audit trail (§7.7) rather than trusting the
   // policy file's cached track_record. Scope the scan to this collector's tenant.
-  const tasks = await adapter.listTasks({ source: collectorSource(collector) });
+  const tasks = await adapter.listTasksWithComments({ source: collectorSource(collector) });
   const aggregated = aggregateTrackRecord(tasks);
 
   // Surface every class that has history OR appears in a rule, so a freshly-proposed

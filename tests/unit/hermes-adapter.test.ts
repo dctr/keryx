@@ -179,6 +179,41 @@ describe('Hermes CLI adapter', () => {
     expect(() => assertAllowedHermesArgs(['send'])).toThrow(/not allowlisted/i);
   });
 
+  it('enriches list results with per-task comments via show (the live two-call contract)', async () => {
+    // The live `kanban list --json` omits per-task comments; only `show --json` embeds them.
+    // listTasksWithComments lists once, then merges each task's comments fetched via show.
+    const listOutput = JSON.stringify([
+      { id: 't_a', status: 'done' },
+      { id: 't_b', status: 'blocked' },
+    ]);
+    const showOutputs: Record<string, string> = {
+      t_a: JSON.stringify({ task: { id: 't_a', status: 'done', comments: [{ body: '{"schema":"keryx.outcome.v1"}' }] } }),
+      t_b: JSON.stringify({ task: { id: 't_b', status: 'blocked', comments: [] } }),
+    };
+    const runner = vi.fn<HermesRunner>(async (request) => {
+      if (request.args[3] === 'list') {
+        return { stdout: listOutput, stderr: '', exitCode: 0 };
+      }
+      if (request.args[3] === 'show') {
+        return { stdout: showOutputs[request.args[4]] ?? '{}', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    const adapter = new HermesCliAdapter(loadConfig({ env: {}, configPath: null }), runner);
+
+    const tasks = await adapter.listTasksWithComments({ status: 'done' });
+
+    expect(tasks).toEqual([
+      { id: 't_a', status: 'done', comments: [{ body: '{"schema":"keryx.outcome.v1"}' }] },
+      { id: 't_b', status: 'blocked', comments: [] },
+    ]);
+    const verbs = runner.mock.calls.map(([request]) => request.args[3]);
+    expect(verbs).toEqual(['list', 'show', 'show']);
+    // list still carries its filter; show targets each listed task id.
+    expect(runner.mock.calls[0][0].args).toEqual(['kanban', '--board', 'keryx', 'list', '--status', 'done', '--json']);
+    expect(runner.mock.calls.slice(1).map(([request]) => request.args[4])).toEqual(['t_a', 't_b']);
+  });
+
   it('parses Hermes Kanban JSON envelopes', () => {
     expect(parseKanbanTasks(JSON.stringify([{ id: 't_2', status: 'done' }]))).toEqual([{ id: 't_2', status: 'done' }]);
     expect(parseKanbanTask(JSON.stringify({ task: { id: 't_3', title: 'Single' } }))).toEqual({ id: 't_3', title: 'Single' });

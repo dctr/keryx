@@ -63,10 +63,19 @@ function task(id: string, status: string, comments: KanbanComment[]): KanbanTask
   return { id, status, body: card(), comments };
 }
 
+// Models the live two-call contract: `list --json` omits per-task comments; only
+// `show --json` embeds them. A comment-reading command must enrich via show.
 function listRunner(tasks: KanbanTask[]): HermesRunner {
   return vi.fn<HermesRunner>(async (request) => {
     if (request.args[3] === 'list') {
-      return { stdout: JSON.stringify(tasks), stderr: '', exitCode: 0 };
+      const stripped = tasks.map(({ comments: _comments, ...rest }) => rest);
+      return { stdout: JSON.stringify(stripped), stderr: '', exitCode: 0 };
+    }
+    if (request.args[3] === 'show') {
+      const task = tasks.find((candidate) => candidate.id === request.args[4]);
+      return task
+        ? { stdout: JSON.stringify({ task }), stderr: '', exitCode: 0 }
+        : { stdout: '', stderr: `No fake task ${request.args[4]}`, exitCode: 1 };
     }
     return { stdout: '[]', stderr: '', exitCode: 0 };
   });

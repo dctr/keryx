@@ -19,12 +19,15 @@ export function createFakeHermes(options: FakeHermesOptions = {}): FakeHermes {
     requests.push(request);
 
     if (matches(request.args, ['kanban', '--board']) && request.args.includes('list')) {
-      return ok(tasks);
+      // Model the live CLI contract: `kanban list --json` does NOT embed per-task
+      // comments. Callers that need comments must enrich via `show` (listTasksWithComments).
+      return ok(tasks.map((task) => stripComments(task)));
     }
 
     if (matches(request.args, ['kanban', '--board']) && request.args.includes('show')) {
       const taskId = request.args[4];
       const task = tasks.find((candidate) => candidate.id === taskId);
+      // `show --json` DOES embed comments — this is the only source of per-task comments.
       return task ? ok({ task }) : fail(`No fake task found for ${taskId}`);
     }
 
@@ -64,6 +67,13 @@ export function createFakeHermes(options: FakeHermesOptions = {}): FakeHermes {
 
 function matches(args: string[], prefix: string[]): boolean {
   return prefix.every((part, index) => args[index] === part);
+}
+
+// Returns a shallow copy of the task with `comments` removed, mirroring how the live
+// `kanban list --json` output omits per-task comments (only `show --json` embeds them).
+function stripComments(task: KanbanTask): KanbanTask {
+  const { comments: _comments, ...rest } = task;
+  return rest;
 }
 
 function toHermes16DeliveryTargets(deliveryTargets: DeliveryTarget[]): unknown {

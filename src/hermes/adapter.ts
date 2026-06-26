@@ -41,6 +41,23 @@ export class HermesCliAdapter {
     return parseKanbanTasks(await this.run(args));
   }
 
+  // Enriched listing for the batch/cron commands that read per-task comments (digest,
+  // metrics, track-record bands, default-resolve, interrupt dedupe, policy show). The live
+  // `hermes kanban list --json` does NOT embed comments — only `show --json` does — so we
+  // list once, then fetch each task with showTask() and merge its comments back on. The N+1
+  // calls are acceptable here: these are infrequent batch/cron paths, not hot request paths,
+  // and correctness (populated comments) matters more than a single round trip. listTasks()
+  // stays unchanged for callers (UI task list, doctor, list-cards) that never read comments.
+  async listTasksWithComments(options: ListTaskOptions = {}): Promise<KanbanTask[]> {
+    const tasks = await this.listTasks(options);
+    return Promise.all(
+      tasks.map(async (task) => {
+        const shown = await this.showTask(task.id);
+        return { ...task, comments: shown.comments ?? [] };
+      }),
+    );
+  }
+
   async showTask(taskId: string): Promise<KanbanTask> {
     return parseKanbanTask(await this.run(['kanban', '--board', this.config.board, 'show', taskId, '--json']));
   }
