@@ -1,5 +1,4 @@
-import { constants } from 'node:fs';
-import { access, readFile, stat } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
@@ -89,14 +88,15 @@ async function sendStaticFile(reply: FastifyReply, root: string, relativePath: s
   }
 
   try {
-    await access(filePath, constants.R_OK);
-    const details = await stat(filePath);
-    if (!details.isFile()) {
+    const content = await readFile(filePath);
+    return reply.type(contentTypeFor(filePath)).send(content);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'EISDIR') {
       return reply.code(404).send({ ok: false, error: 'not found' });
     }
-    return reply.type(contentTypeFor(filePath)).send(await readFile(filePath));
-  } catch {
-    return reply.code(404).send({ ok: false, error: 'not found' });
+    reply.log.error(err, `sendStaticFile: unexpected error reading ${filePath}`);
+    return reply.code(500).send({ ok: false, error: 'internal server error' });
   }
 }
 
