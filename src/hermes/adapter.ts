@@ -146,6 +146,14 @@ export class HermesCliAdapter {
     return parseDeliveryTargets(await this.run(args));
   }
 
+  // The single new state-changing privilege in v005 (PRD §7.5, §11.12): deliver an
+  // interrupt or digest message to a configured target. Mirrors the real `hermes send`
+  // CLI shape (`hermes send --to TARGET <message>`), kept exact so this cannot become a
+  // generic send passthrough (no --file/--subject/--quiet etc.).
+  async sendMessage(target: string, message: string): Promise<string> {
+    return this.run(['send', '--to', target, message]);
+  }
+
   // Returns the raw `hermes --version` stdout. Callers parse the semver with
   // parseHermesVersion(); the adapter does not interpret the output so that a
   // cosmetic format change degrades to a WARN rather than a hard failure.
@@ -175,7 +183,13 @@ export class HermesCliAdapter {
 }
 
 export function assertAllowedHermesArgs(args: readonly string[]): void {
-  if (isAllowedKanbanArgs(args) || isAllowedSendArgs(args) || isAllowedCronArgs(args) || isAllowedVersionArgs(args)) {
+  if (
+    isAllowedKanbanArgs(args) ||
+    isAllowedSendArgs(args) ||
+    isAllowedSendMessageArgs(args) ||
+    isAllowedCronArgs(args) ||
+    isAllowedVersionArgs(args)
+  ) {
     return;
   }
 
@@ -267,6 +281,19 @@ function isAllowedSendArgs(args: readonly string[]): boolean {
     args[0] === 'send' &&
     args[1] === '--list' &&
     ((args.length === 3 && args[2] === '--json') || (args.length === 4 && isNonEmptyString(args[2]) && args[3] === '--json'))
+  );
+}
+
+// The narrow interrupt/digest delivery shape: `hermes send --to <target> <message>`.
+// Exact arity (4) and both target+message non-empty, with no trailing flags
+// (--file/--subject/--quiet/--json etc.) so this stays a single-purpose privilege.
+function isAllowedSendMessageArgs(args: readonly string[]): boolean {
+  return (
+    args.length === 4 &&
+    args[0] === 'send' &&
+    args[1] === '--to' &&
+    isNonEmptyString(args[2]) &&
+    isNonEmptyString(args[3])
   );
 }
 

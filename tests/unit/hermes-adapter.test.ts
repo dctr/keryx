@@ -150,6 +150,35 @@ describe('Hermes CLI adapter', () => {
     expect(promoteArgs).toEqual(['kanban', '--board', 'keryx', 'promote', 't_ready', 'approved by Keryx policy', '--json']);
   });
 
+  it('sends an interrupt/digest message via the narrow allowlisted send shape', async () => {
+    const runner = vi.fn<HermesRunner>(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const adapter = new HermesCliAdapter(loadConfig({ env: {}, configPath: null }), runner);
+
+    await adapter.sendMessage('telegram:293041098', 'Keryx needs a decision on 2 cards.');
+
+    expect(runner).toHaveBeenCalledWith({
+      bin: 'hermes',
+      args: ['send', '--to', 'telegram:293041098', 'Keryx needs a decision on 2 cards.'],
+      env: {},
+    });
+  });
+
+  it('allowlists only the narrow `send --to <target> <message>` shape (and keeps --list)', () => {
+    expect(() => assertAllowedHermesArgs(['send', '--to', 'telegram', 'hello'])).not.toThrow();
+    expect(() => assertAllowedHermesArgs(['send', '--list', '--json'])).not.toThrow();
+    expect(() => assertAllowedHermesArgs(['send', '--list', 'telegram', '--json'])).not.toThrow();
+
+    // Bare positional target (no --to flag) is not the real CLI shape and is rejected.
+    expect(() => assertAllowedHermesArgs(['send', 'telegram', 'hello'])).toThrow(/not allowlisted/i);
+    // Missing message / missing target / empty parts are rejected.
+    expect(() => assertAllowedHermesArgs(['send', '--to', 'telegram'])).toThrow(/not allowlisted/i);
+    expect(() => assertAllowedHermesArgs(['send', '--to', '', 'hello'])).toThrow(/not allowlisted/i);
+    expect(() => assertAllowedHermesArgs(['send', '--to', 'telegram', ''])).toThrow(/not allowlisted/i);
+    // No extra flags (e.g. --file, --subject, --quiet) past the narrow two-argument shape.
+    expect(() => assertAllowedHermesArgs(['send', '--to', 'telegram', 'hi', '--quiet'])).toThrow(/not allowlisted/i);
+    expect(() => assertAllowedHermesArgs(['send'])).toThrow(/not allowlisted/i);
+  });
+
   it('parses Hermes Kanban JSON envelopes', () => {
     expect(parseKanbanTasks(JSON.stringify([{ id: 't_2', status: 'done' }]))).toEqual([{ id: 't_2', status: 'done' }]);
     expect(parseKanbanTask(JSON.stringify({ task: { id: 't_3', title: 'Single' } }))).toEqual({ id: 't_3', title: 'Single' });
