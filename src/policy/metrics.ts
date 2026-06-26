@@ -5,6 +5,7 @@
 // against fixtures and re-derivable at any time.
 
 import type { KanbanComment, KanbanTask } from '../hermes/types';
+import { parseCommentBody } from '../hermes/commentBody';
 import { validateActionItem } from '../schemas/actionItem';
 import { validateDismissalDecision } from '../schemas/dismissalDecision';
 import { validateExecutionDecision } from '../schemas/executionDecision';
@@ -46,15 +47,6 @@ export interface KeryxMetrics {
   // Regret comments on silent cards — a proxy for undo/correction cost (§7.9).
   recoveryCost: number;
   escalationRegret: { should_have_acted: number; should_have_asked: number };
-}
-
-function parseJsonBody(raw: unknown): unknown {
-  if (typeof raw !== 'string') return null;
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return null;
-  }
 }
 
 function commentTime(comment: KanbanComment): number | null {
@@ -112,7 +104,7 @@ export function computeMetrics(tasks: KanbanTask[], window: MetricsWindow = {}):
   let shadowAgreements = 0;
 
   for (const task of tasks) {
-    const card = validateActionItem(parseJsonBody(task.body));
+    const card = validateActionItem(parseCommentBody({ body: task.body }));
     const primaryOptionId = card.ok ? (card.value.ui?.primary_option_id ?? null) : null;
 
     const signals: TaskSignals = {
@@ -125,7 +117,7 @@ export function computeMetrics(tasks: KanbanTask[], window: MetricsWindow = {}):
 
     for (const comment of task.comments ?? []) {
       if (!inWindow(comment, from, to)) continue;
-      const body = parseJsonBody(comment.body);
+      const body = parseCommentBody(comment);
       if (body === null) continue;
 
       const policy = validatePolicyDecision(body);

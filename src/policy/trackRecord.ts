@@ -10,8 +10,9 @@
 //   - regret             -> regret.
 // The resulting { approved, overridden, dismissed, regret } feeds deriveBand().
 
-import type { KanbanComment, KanbanTask } from '../hermes/types';
+import type { KanbanTask } from '../hermes/types';
 import type { TrackRecord } from './confidence';
+import { parseCommentBody } from '../hermes/commentBody';
 import { validateActionItem } from '../schemas/actionItem';
 import { validateDismissalDecision } from '../schemas/dismissalDecision';
 import { validateExecutionDecision } from '../schemas/executionDecision';
@@ -19,15 +20,6 @@ import { validateRegret } from '../schemas/regret';
 
 function emptyRecord(): TrackRecord {
   return { approved: 0, overridden: 0, dismissed: 0, regret: 0 };
-}
-
-function parseCommentBody(comment: KanbanComment): unknown {
-  if (typeof comment.body !== 'string') return null;
-  try {
-    return JSON.parse(comment.body) as unknown;
-  } catch {
-    return null;
-  }
 }
 
 export function aggregateTrackRecord(tasks: KanbanTask[]): Record<string, TrackRecord> {

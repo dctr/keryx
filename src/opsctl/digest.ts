@@ -6,7 +6,8 @@
 // Discipline borrowed from daily-brief / weekly-brief: omit empty categories; if there
 // is nothing to report, the whole digest is `[SILENT]` and nothing is sent.
 
-import type { KanbanComment, KanbanTask } from '../hermes/types';
+import type { KanbanTask } from '../hermes/types';
+import { parseCommentBody } from '../hermes/commentBody';
 import { validateOutcome } from '../schemas/outcome';
 
 export type DigestCadence = 'daily' | 'weekly';
@@ -119,11 +120,3 @@ export function extractOutcomes(tasks: KanbanTask[]): DigestOutcome[] {
   return outcomes;
 }
 
-function parseCommentBody(comment: KanbanComment): unknown {
-  if (typeof comment.body !== 'string') return null;
-  try {
-    return JSON.parse(comment.body) as unknown;
-  } catch {
-    return null;
-  }
-}

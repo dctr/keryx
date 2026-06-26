@@ -8,8 +8,9 @@
 // adapter (comment the auto-decision + outcome, then promote or archive).
 
 import type { ActionItem, ActionOption, DefaultOnTimeout } from '../schemas/actionItem';
-import type { KanbanComment, KanbanTask } from '../hermes/types';
+import type { KanbanTask } from '../hermes/types';
 import type { Outcome } from '../schemas/outcome';
+import { parseCommentBody } from '../hermes/commentBody';
 import { validateActionItem } from '../schemas/actionItem';
 import { validateDismissalDecision } from '../schemas/dismissalDecision';
 import { validateExecutionDecision } from '../schemas/executionDecision';
@@ -166,17 +167,6 @@ function someComment(task: KanbanTask, predicate: (body: unknown) => boolean): b
     }
   }
   return false;
-}
-
-function parseCommentBody(comment: KanbanComment): unknown {
-  if (typeof comment.body !== 'string') {
-    return null;
-  }
-  try {
-    return JSON.parse(comment.body) as unknown;
-  } catch {
-    return null;
-  }
 }
 
 // Parses a (subset of) ISO-8601 duration into milliseconds. Supports the date/time forms
