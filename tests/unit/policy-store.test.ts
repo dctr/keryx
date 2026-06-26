@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -129,6 +129,29 @@ describe('policy store', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors[0].message).toContain('JSON');
+    }
+  });
+
+  it('distinguishes a read error from a JSON parse error', () => {
+    const home = tempHome();
+    const source = 'email';
+    const dir = join(home, 'skills', `keryx-collector-${source}`, 'references');
+    mkdirSync(dir, { recursive: true });
+    const policyPath = join(dir, 'policy.json');
+    writeFileSync(policyPath, JSON.stringify(samplePolicy), 'utf8');
+    chmodSync(policyPath, 0o000);
+
+    try {
+      const result = loadPolicy('keryx-email', { hermesHome: home });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors[0].keyword).toBe('read');
+        expect(result.errors[0].message).toMatch(/could not read policy file/);
+        expect(result.errors[0].message).not.toContain('JSON');
+      }
+    } finally {
+      // restore so tmpdir cleanup can delete
+      chmodSync(policyPath, 0o644);
     }
   });
 });

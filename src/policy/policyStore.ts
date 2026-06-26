@@ -5,7 +5,7 @@
 // the document, and returns a schema-valid empty default when the file is absent so
 // the disposition function can treat "no policy" as "review-only" without special-casing.
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -67,13 +67,31 @@ export function loadPolicy(collector: string, options: PolicyStoreOptions = {}):
   const path = resolvePolicyPath(collector, options);
   const now = options.now ?? (() => new Date());
 
-  if (!existsSync(path)) {
-    return { ok: true, exists: false, policy: emptyPolicy(collector, now), path };
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { ok: true, exists: false, policy: emptyPolicy(collector, now), path };
+    }
+    return {
+      ok: false,
+      exists: true,
+      path,
+      errors: [
+        {
+          path: '',
+          message: `could not read policy file: ${error instanceof Error ? error.message : String(error)}`,
+          keyword: 'read',
+          params: {},
+        },
+      ],
+    };
   }
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+    parsed = JSON.parse(raw) as unknown;
   } catch (error) {
     return {
       ok: false,
