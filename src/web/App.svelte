@@ -453,8 +453,9 @@
           {/if}
 
           {#if task.status === 'done'}
+            {@const undoLabel = undoLabelFor(task)}
             <div class="task-actions review-log-actions">
-              {#if undoLabelFor(task)}
+              {#if undoLabel}
                 <button
                   class="secondary undo"
                   type="button"
@@ -465,7 +466,7 @@
                     : 'Reverse this reversible action and restore the prior state.'}
                   onclick={() => handleUndo(task)}
                 >
-                  {pendingByTask[task.id] === 'review-undo' ? 'Working…' : undoLabelFor(task)}
+                  {pendingByTask[task.id] === 'review-undo' ? 'Working…' : undoLabel}
                 </button>
               {/if}
               <button
