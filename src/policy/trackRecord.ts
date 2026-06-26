@@ -17,6 +17,7 @@ import { validateActionItem } from '../schemas/actionItem';
 import { validateDismissalDecision } from '../schemas/dismissalDecision';
 import { validateExecutionDecision } from '../schemas/executionDecision';
 import { validateRegret } from '../schemas/regret';
+import { validatorForSchema } from '../schemas/validatorBySchema';
 
 function emptyRecord(): TrackRecord {
   return { approved: 0, overridden: 0, dismissed: 0, regret: 0 };
@@ -46,6 +47,30 @@ export function aggregateTrackRecord(tasks: KanbanTask[]): Record<string, TrackR
       const body = parseCommentBody(comment);
       if (body === null) continue;
 
+      // Fast path: dispatch on the body's schema field when present.
+      const fastValidator = validatorForSchema(body);
+      if (fastValidator !== null) {
+        if (!fastValidator(body).ok) continue;
+        const schemaKey = (body as Record<string, unknown>)['schema'] as string;
+        if (schemaKey === 'keryx.execution_decision.v1') {
+          const decision = validateExecutionDecision(body);
+          if (decision.ok) {
+            if (primaryOptionId !== null && decision.value.selected_option_id !== primaryOptionId) {
+              record.overridden += 1;
+            } else {
+              record.approved += 1;
+            }
+          }
+        } else if (schemaKey === 'keryx.dismissal_decision.v1') {
+          record.dismissed += 1;
+        } else if (schemaKey === 'keryx.regret.v1') {
+          record.regret += 1;
+        }
+        // other known schemas (outcome, policy_decision) are not tracked here — skip.
+        continue;
+      }
+
+      // Slow path: no schema field — try each validator in sequence.
       const decision = validateExecutionDecision(body);
       if (decision.ok) {
         // An "override" is a decision whose selected option differs from the card's

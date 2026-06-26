@@ -12,6 +12,7 @@ import { validateExecutionDecision } from '../schemas/executionDecision';
 import { validateOutcome } from '../schemas/outcome';
 import { validatePolicyDecision } from '../schemas/policyDecision';
 import { validateRegret } from '../schemas/regret';
+import { validatorForSchema } from '../schemas/validatorBySchema';
 
 export interface MetricsWindow {
   // Inclusive lower bound; comments older than this are ignored. null = unbounded.
@@ -120,6 +121,53 @@ export function computeMetrics(tasks: KanbanTask[], window: MetricsWindow = {}):
       const body = parseCommentBody(comment);
       if (body === null) continue;
 
+      // Fast path: dispatch on the body's schema field when present.
+      const fastValidator = validatorForSchema(body);
+      if (fastValidator !== null) {
+        const result = fastValidator(body);
+        if (!result.ok) continue;
+        const schemaKey = (body as Record<string, unknown>)['schema'] as string;
+        if (schemaKey === 'keryx.policy_decision.v1') {
+          const policy = validatePolicyDecision(body);
+          if (policy.ok) {
+            if (policy.value.disposition === 'silent') {
+              counts.silentExecutions += 1;
+              signals.isSilent = true;
+            } else if (policy.value.disposition === 'interrupt') {
+              counts.interrupts += 1;
+            }
+            if (policy.value.approved_via.startsWith('policy:shadow')) {
+              counts.shadowWouldHave += 1;
+              signals.shadowSelectedOptionId = policy.value.selected_option_id;
+            }
+          }
+        } else if (schemaKey === 'keryx.execution_decision.v1') {
+          const execution = validateExecutionDecision(body);
+          if (execution.ok) {
+            signals.humanSelectedOptionIds.push(execution.value.selected_option_id);
+            if (primaryOptionId !== null && execution.value.selected_option_id !== primaryOptionId) {
+              counts.overrides += 1;
+            } else {
+              counts.humanApprovals += 1;
+            }
+            decidedReviews += 1;
+          }
+        } else if (schemaKey === 'keryx.dismissal_decision.v1') {
+          counts.dismissals += 1;
+        } else if (schemaKey === 'keryx.outcome.v1') {
+          counts.outcomes += 1;
+        } else if (schemaKey === 'keryx.regret.v1') {
+          const regret = validateRegret(body);
+          if (regret.ok) {
+            counts.regrets += 1;
+            signals.hasRegret = true;
+            escalationRegret[regret.value.kind] += 1;
+          }
+        }
+        continue;
+      }
+
+      // Slow path: no schema field — try each validator in sequence.
       const policy = validatePolicyDecision(body);
       if (policy.ok) {
         if (policy.value.disposition === 'silent') {
