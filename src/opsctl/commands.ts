@@ -11,6 +11,15 @@ import { decideDisposition } from '../policy/disposition';
 import { loadPolicy } from '../policy/policyStore';
 import { aggregateTrackRecord } from '../policy/trackRecord';
 import { composeDigest, extractOutcomes, type DigestCadence } from './digest';
+import {
+  buildNotification,
+  composeInterruptMessage,
+  countInterruptsSentToday,
+  decideInterruptDelivery,
+  hasInterruptNotification,
+  interruptDedupeKey,
+  interruptTier,
+} from './interrupt';
 import { computeMetrics, formatMetrics, type MetricsWindow } from '../policy/metrics';
 import { actionItemSchema, type ActionItem, type ActionOption, validateActionItem } from '../schemas/actionItem';
 import { collectorStateSchema, validateCollectorState } from '../schemas/collectorState';
@@ -203,7 +212,7 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
       case 'mark-reviewed':
         return markReviewedCard(parsed, adapter, options.now ?? (() => new Date()));
       case 'digest':
-        return digest(parsed, adapter);
+        return digest(parsed, adapter, options);
       case 'metrics':
         return metrics(parsed, adapter, options.now ?? (() => new Date()));
       case 'regret':
@@ -418,12 +427,77 @@ async function createCard(filePath: string | undefined, adapter: HermesCliAdapte
     return ok(json(await adapter.createReadyTaskFromActionItem(card, policyDecision)));
   }
 
+  // Interrupt: the card is created blocked and flagged for a human decision (PRD §7.2),
+  // and Keryx additionally pushes a self-contained §9.2 message when a notify_target is
+  // configured and the push is within quiet-hours/budget policy (§7.5).
+  if (disposition.disposition === 'interrupt') {
+    return ok(json(await createInterruptCard(card, disposition.reasons, adapter, options, now)));
+  }
+
   // A shadow rule resolves to review but "would have" run silently: record that reasoning
   // as a policy_decision on the blocked card so shadow agreement is auditable (§10.1).
   const shadowDecision = disposition.shadow
     ? buildShadowPolicyDecision(card, selected, disposition.rule_id, disposition.reasons, now)
     : undefined;
   return ok(json(await adapter.createTaskFromActionItem(card, shadowDecision)));
+}
+
+// Creates the blocked interrupt card, then delivers the §9.2 push when policy allows.
+// Delivery gate (PRD §7.5): a notify_target must be configured; the push is suppressed
+// (and falls back to the digest) during quiet hours unless urgent, once the per-tier
+// daily budget is exhausted, or if this card was already pushed (dedupe). The board is
+// listed once — only when a target is set — to count today's interrupts and dedupe.
+async function createInterruptCard(
+  card: ActionItem,
+  reasons: string[],
+  adapter: HermesCliAdapter,
+  options: RunOpsctlOptions,
+  now: () => Date,
+): Promise<unknown> {
+  const created = await adapter.createTaskFromActionItem(card);
+
+  const notifyTarget = options.config?.notifyTarget;
+  const taskId = createdTaskId(created);
+  if (!notifyTarget || !taskId) {
+    return created;
+  }
+
+  const tier = interruptTier(card.urgency);
+  const dedupeKey = interruptDedupeKey(taskId, tier);
+
+  const tasks = await adapter.listTasks();
+  if (tasks.some((task) => task.id === taskId && hasInterruptNotification(task, dedupeKey))) {
+    return created;
+  }
+
+  const decision = decideInterruptDelivery({
+    notifyTarget,
+    urgency: card.urgency,
+    quietHours: options.config?.quietHours,
+    budget: options.config?.interruptBudget,
+    sentTodayForTier: countInterruptsSentToday(tasks, tier, now()),
+    now: now(),
+  });
+  if (!decision.deliver) {
+    return created;
+  }
+
+  await adapter.sendMessage(notifyTarget, composeInterruptMessage({ taskId, card, reason: reasons.join('; ') }));
+  await adapter.commentTask(
+    taskId,
+    JSON.stringify(buildNotification({ channel: 'interrupt', target: notifyTarget, dedupeKey, now: now() })),
+  );
+  return created;
+}
+
+function createdTaskId(created: unknown): string | null {
+  if (typeof created === 'object' && created !== null) {
+    const id = (created as { id?: unknown }).id;
+    if (typeof id === 'string' && id.length > 0) {
+      return id;
+    }
+  }
+  return null;
 }
 
 // `auto-execute` is the creation+promotion entrypoint used by collectors/tests for a
@@ -768,23 +842,37 @@ function dismissResult(taskId: string, status: string, action: string, actionIte
 }
 
 // Reads silent outcomes from the review log (done cards), composes the relevancy-grouped
-// digest, and (Phase 3) renders it with --preview. Sending via `hermes send` is a Phase 6
-// adapter shape; until then a non-preview invocation errors clearly rather than no-op.
-async function digest(parsed: ParsedArgs, adapter: HermesCliAdapter): Promise<CommandResult> {
+// digest, and either renders it (--preview) or delivers it via `hermes send` to the
+// configured notify_target (PRD §7.6). Brief discipline: when there is nothing to report
+// the digest is `[SILENT]` and nothing is sent. A non-preview send with no notify_target
+// configured fails clearly rather than silently dropping the digest.
+async function digest(parsed: ParsedArgs, adapter: HermesCliAdapter, options: RunOpsctlOptions): Promise<CommandResult> {
   const cadence = parseCadence(stringFlag(parsed, 'cadence'));
   if (!cadence.ok) {
     return cadence.error;
   }
 
-  if (parsed.flags.get('preview') !== true) {
-    return fail(
-      'FAIL digest send is not available yet (Phase 6 wires `hermes send`); rerun with --preview to render without sending',
-    );
-  }
-
   const tasks = await adapter.listTasks({ status: 'done' });
   const outcomes = extractOutcomes(tasks);
   const result = composeDigest(outcomes, { cadence: cadence.value });
+
+  if (parsed.flags.get('preview') === true) {
+    return ok(result.message);
+  }
+
+  // Nothing to report: send nothing (daily-brief/weekly-brief discipline).
+  if (result.silent) {
+    return ok(result.message);
+  }
+
+  const notifyTarget = options.config?.notifyTarget;
+  if (!notifyTarget) {
+    return fail(
+      'FAIL digest send requires a configured notify_target; set it in keryx.config.json or rerun with --preview to render without sending',
+    );
+  }
+
+  await adapter.sendMessage(notifyTarget, result.message);
   return ok(result.message);
 }
 

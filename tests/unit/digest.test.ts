@@ -180,8 +180,12 @@ describe('opsctl digest command', () => {
     expect(result.stdout).toContain('[SILENT]');
   });
 
-  it('errors clearly when asked to send before the Phase 6 send path exists', async () => {
-    const runner = vi.fn<HermesRunner>(async () => ({ stdout: JSON.stringify([]), stderr: '', exitCode: 0 }));
+  it('fails clearly when asked to send without a configured notify_target', async () => {
+    const runner = vi.fn<HermesRunner>(async () => ({
+      stdout: JSON.stringify([{ id: 't_done', status: 'done', comments: [{ body: JSON.stringify(outcomeComment) }] }]),
+      stderr: '',
+      exitCode: 0,
+    }));
 
     const result = await runOpsctl(['digest'], {
       config: loadConfig({ env: {}, configPath: null }),
@@ -190,7 +194,47 @@ describe('opsctl digest command', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('FAIL');
+    expect(result.stderr).toContain('notify_target');
     expect(result.stderr).toContain('--preview');
+    expect(runner.mock.calls.some(([request]) => request.args[0] === 'send')).toBe(false);
+  });
+
+  it('sends the composed digest via hermes send to the configured notify_target', async () => {
+    const runner = vi.fn<HermesRunner>(async (request) => {
+      if (request.args[0] === 'send') {
+        return { stdout: 'sent', stderr: '', exitCode: 0 };
+      }
+      return {
+        stdout: JSON.stringify([{ id: 't_done', status: 'done', comments: [{ body: JSON.stringify(outcomeComment) }] }]),
+        stderr: '',
+        exitCode: 0,
+      };
+    });
+
+    const result = await runOpsctl(['digest'], {
+      config: { ...loadConfig({ env: {}, configPath: null }), notifyTarget: 'telegram' },
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('📰 FACEBOOK');
+    expect(result.stdout).toContain('• Summarised 3 new posts.');
+
+    const sendCall = runner.mock.calls.find(([request]) => request.args[0] === 'send');
+    expect(sendCall).toBeDefined();
+    expect(sendCall?.[0].args).toEqual(['send', '--to', 'telegram', expect.stringContaining('📰 FACEBOOK')]);
+  });
+
+  it('sends nothing when there are no outcomes to report (non-preview [SILENT])', async () => {
+    const runner = vi.fn<HermesRunner>(async () => ({ stdout: JSON.stringify([]), stderr: '', exitCode: 0 }));
+
+    const result = await runOpsctl(['digest'], {
+      config: { ...loadConfig({ env: {}, configPath: null }), notifyTarget: 'telegram' },
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('[SILENT]');
     expect(runner.mock.calls.some(([request]) => request.args[0] === 'send')).toBe(false);
   });
 });

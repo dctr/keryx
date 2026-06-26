@@ -408,3 +408,117 @@ describe('opsctl create-card policy + band wiring', () => {
   });
 });
 
+// An urgent + external card resolves to interrupt via the disposition function.
+const interruptActionItem: ActionItem = sampleActionItem({
+  class: 'email:account-lockout',
+  external_id: 'support-inbox:INBOX:777',
+  idempotency_key: 'keryx:email:support-inbox:INBOX:777',
+  urgency: 'urgent',
+  proposed_disposition: 'interrupt',
+  risk: 'Account stays locked and the customer escalates if ignored.',
+  default_on_timeout: { action: 'dismiss', after: '17:00' },
+  ui: { primary_option_id: 'translate_forward_contact_archive', display_group: 'Needs decision' },
+});
+
+function interruptRunner(): ReturnType<typeof vi.fn<HermesRunner>> {
+  return vi.fn<HermesRunner>(async (request) => {
+    if (request.args[3] === 'create') {
+      return { stdout: JSON.stringify({ id: 't_int', title: interruptActionItem.title, status: 'blocked' }), stderr: '', exitCode: 0 };
+    }
+    if (request.args[3] === 'list') {
+      return { stdout: JSON.stringify([{ id: 't_int', status: 'blocked', comments: [] }]), stderr: '', exitCode: 0 };
+    }
+    if (request.args[0] === 'send') {
+      return { stdout: 'sent', stderr: '', exitCode: 0 };
+    }
+    return { stdout: '', stderr: '', exitCode: 0 };
+  });
+}
+
+describe('opsctl create-card interrupt delivery', () => {
+  it('creates a blocked card and pushes the §9.2 interrupt message when notify_target is set', async () => {
+    const runner = interruptRunner();
+    const filePath = writeTempJson(interruptActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: { ...loadConfig({ env: {}, configPath: null }), notifyTarget: 'telegram' },
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const calls = runner.mock.calls.map(([request]) => request.args);
+    // create (already blocked) -> assign -> list (dedupe/budget) -> send -> comment
+    expect(calls.map((args) => (args[0] === 'send' ? 'send' : args[3]))).toEqual(['create', 'assign', 'list', 'send', 'comment']);
+
+    const sendArgs = calls.find((args) => args[0] === 'send');
+    expect(sendArgs?.slice(0, 3)).toEqual(['send', '--to', 'telegram']);
+    const message = sendArgs?.[3] ?? '';
+    expect(message).toContain('Urgent: Support request: account access needs review');
+    expect(message).toContain('Risk if wrong: Account stays locked');
+    expect(message).toContain('Open in Keryx: /#/card/t_int');
+    expect(message).toContain('Reply: approve / change / hold');
+
+    const commentArgs = calls.find((args) => args[3] === 'comment');
+    const notification = JSON.parse(commentArgs?.[5] ?? '{}') as { schema?: string; channel?: string; dedupe_key?: string };
+    expect(notification.schema).toBe('keryx.notification.v1');
+    expect(notification.channel).toBe('interrupt');
+    expect(notification.dedupe_key).toBe('keryx:interrupt:urgent:t_int');
+  });
+
+  it('creates the blocked card but does not push when no notify_target is configured', async () => {
+    const runner = interruptRunner();
+    const filePath = writeTempJson(interruptActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: loadConfig({ env: {}, configPath: null }),
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const verbs = runner.mock.calls.map(([request]) => request.args[3] ?? request.args[0]);
+    expect(verbs).toEqual(['create', 'assign']);
+    expect(runner.mock.calls.some(([request]) => request.args[0] === 'send')).toBe(false);
+  });
+
+  it('does not push twice when the card already carries the interrupt notification (dedupe)', async () => {
+    const runner = vi.fn<HermesRunner>(async (request) => {
+      if (request.args[3] === 'create') {
+        return { stdout: JSON.stringify({ id: 't_int', title: interruptActionItem.title, status: 'blocked' }), stderr: '', exitCode: 0 };
+      }
+      if (request.args[3] === 'list') {
+        return {
+          stdout: JSON.stringify([
+            {
+              id: 't_int',
+              status: 'blocked',
+              comments: [
+                {
+                  body: JSON.stringify({
+                    schema: 'keryx.notification.v1',
+                    channel: 'interrupt',
+                    target: 'telegram',
+                    sent_at: '2026-06-26T01:00:00.000Z',
+                    dedupe_key: 'keryx:interrupt:urgent:t_int',
+                  }),
+                },
+              ],
+            },
+          ]),
+          stderr: '',
+          exitCode: 0,
+        };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    const filePath = writeTempJson(interruptActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: { ...loadConfig({ env: {}, configPath: null }), notifyTarget: 'telegram' },
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.mock.calls.some(([request]) => request.args[0] === 'send')).toBe(false);
+  });
+});
+
