@@ -1,40 +1,10 @@
 // defaultResolveCmd: the expiring-default resolver for interrupt cards past their deadline.
 
 import { buildAutoResolutionOutcome, DEFAULT_RESOLVER_ACTOR, findResolvableInterrupts, resolveDefaultOption } from '../defaultResolver';
-import type { ActionItem } from '../../schemas/actionItem';
 import type { CommandResult } from '../output';
 import { json, ok } from '../output';
 import { type CommandContext } from '../shared';
-
-// The trusted execution decision the resolver writes when auto-executing a default option.
-// approved_by/_via name the resolver (not "User") so the audit trail makes clear the
-// timeout default fired, not a human approval.
-function buildAutoResolutionDecision(selectedOptionId: string, now: () => Date) {
-  return {
-    schema: 'keryx.execution_decision.v1',
-    selected_option_id: selectedOptionId,
-    user_feedback: null,
-    approved_by: DEFAULT_RESOLVER_ACTOR,
-    approved_via: DEFAULT_RESOLVER_ACTOR,
-    approved_at: now().toISOString(),
-  };
-}
-
-// The exact-item dismissal the resolver writes when auto-dismissing an unanswered
-// interrupt. dismissed_by/_via name the resolver so the dismissal is attributable to the
-// timeout default rather than a human action.
-function buildAutoResolutionDismissal(actionItem: ActionItem, now: () => Date) {
-  return {
-    schema: 'keryx.dismissal_decision.v1',
-    dismissal_scope: 'exact_item',
-    reason: 'Auto-dismissed on interrupt timeout: no decision before default_on_timeout deadline.',
-    dismissed_external_id: actionItem.external_id,
-    dismissed_idempotency_key: actionItem.idempotency_key,
-    dismissed_by: DEFAULT_RESOLVER_ACTOR,
-    dismissed_via: DEFAULT_RESOLVER_ACTOR,
-    dismissed_at: now().toISOString(),
-  };
-}
+import { buildExecutionDecision, buildDismissalDecision } from '../builders';
 
 // `default-resolve [--preview]` (PRD §7.5, §10.6): the expiring-default resolver. Lists
 // the board once, selects interrupt cards whose default_on_timeout deadline has passed
@@ -63,7 +33,18 @@ export async function defaultResolveCmd(ctx: CommandContext): Promise<CommandRes
         continue;
       }
       await adapter.commentTask(item.task.id, JSON.stringify(buildAutoResolutionOutcome(item, now)));
-      await adapter.commentTask(item.task.id, JSON.stringify(buildAutoResolutionDecision(option.id, now)));
+      await adapter.commentTask(
+        item.task.id,
+        JSON.stringify(
+          buildExecutionDecision({
+            selectedOptionId: option.id,
+            userFeedback: null,
+            approvedBy: DEFAULT_RESOLVER_ACTOR,
+            approvedVia: DEFAULT_RESOLVER_ACTOR,
+            now,
+          }),
+        ),
+      );
       await adapter.promoteTask(item.task.id, 'auto-resolved by Keryx default-resolver');
       resolved.push({ task_id: item.task.id, action: 'execute_option', option_id: option.id, status: 'ready' });
       continue;
@@ -74,7 +55,18 @@ export async function defaultResolveCmd(ctx: CommandContext): Promise<CommandRes
       continue;
     }
     await adapter.commentTask(item.task.id, JSON.stringify(buildAutoResolutionOutcome(item, now)));
-    await adapter.commentTask(item.task.id, JSON.stringify(buildAutoResolutionDismissal(item.card, now)));
+    await adapter.commentTask(
+      item.task.id,
+      JSON.stringify(
+        buildDismissalDecision({
+          actionItem: item.card,
+          reason: 'Auto-dismissed on interrupt timeout: no decision before default_on_timeout deadline.',
+          dismissedBy: DEFAULT_RESOLVER_ACTOR,
+          dismissedVia: DEFAULT_RESOLVER_ACTOR,
+          now,
+        }),
+      ),
+    );
     await adapter.archiveTask(item.task.id);
     resolved.push({ task_id: item.task.id, action: 'dismiss', status: 'archived' });
   }

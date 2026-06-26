@@ -5,34 +5,7 @@ import type { ActionItem } from '../../schemas/actionItem';
 import type { CommandResult } from '../output';
 import { fail, json, ok } from '../output';
 import { normaliseTaskStatus, type CommandContext, stringFlag, validateTaskIdArgument } from '../shared';
-
-// ---------------------------------------------------------------------------
-// Private builders
-// ---------------------------------------------------------------------------
-
-function buildExecutionDecision(selectedOptionId: string, userFeedback: string | null, now: () => Date) {
-  return {
-    schema: 'keryx.execution_decision.v1',
-    selected_option_id: selectedOptionId,
-    user_feedback: userFeedback,
-    approved_by: 'User',
-    approved_via: 'keryx-web',
-    approved_at: now().toISOString(),
-  };
-}
-
-function buildDismissalDecision(actionItem: ActionItem, reason: string | null, now: () => Date) {
-  return {
-    schema: 'keryx.dismissal_decision.v1',
-    dismissal_scope: 'exact_item',
-    reason,
-    dismissed_external_id: actionItem.external_id,
-    dismissed_idempotency_key: actionItem.idempotency_key,
-    dismissed_by: 'User',
-    dismissed_via: 'keryx-web',
-    dismissed_at: now().toISOString(),
-  };
-}
+import { buildExecutionDecision, buildDismissalDecision } from '../builders';
 
 function dismissResult(taskId: string, status: string, action: string, actionItem: ActionItem) {
   return {
@@ -97,7 +70,18 @@ export async function executeCard(ctx: CommandContext): Promise<CommandResult> {
     return fail(`FAIL cannot execute ${task.id} from status ${status}`);
   }
 
-  await adapter.commentTask(task.id, JSON.stringify(buildExecutionDecision(selectedOption.id, stringFlag(parsed, 'feedback') ?? null, now)));
+  await adapter.commentTask(
+    task.id,
+    JSON.stringify(
+      buildExecutionDecision({
+        selectedOptionId: selectedOption.id,
+        userFeedback: stringFlag(parsed, 'feedback') ?? null,
+        approvedBy: 'User',
+        approvedVia: 'keryx-web',
+        now,
+      }),
+    ),
+  );
   await adapter.promoteTask(task.id, 'approved from Keryx');
 
   const shouldDispatch = parsed.flags.get('dispatch') === true;
@@ -148,7 +132,18 @@ export async function dismissCard(ctx: CommandContext): Promise<CommandResult> {
     return fail(`FAIL cannot dismiss ${task.id} from status ${status}`);
   }
 
-  await adapter.commentTask(task.id, JSON.stringify(buildDismissalDecision(body.actionItem, stringFlag(parsed, 'reason') ?? null, now)));
+  await adapter.commentTask(
+    task.id,
+    JSON.stringify(
+      buildDismissalDecision({
+        actionItem: body.actionItem,
+        reason: stringFlag(parsed, 'reason') ?? null,
+        dismissedBy: 'User',
+        dismissedVia: 'keryx-web',
+        now,
+      }),
+    ),
+  );
   await adapter.archiveTask(task.id);
 
   return ok(json(dismissResult(task.id, 'archived', 'archived', body.actionItem)));
