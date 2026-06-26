@@ -8,7 +8,7 @@ import type { HermesRunner, KanbanTask } from '../hermes/types';
 import { firstString, isPlainObject } from '../util/object';
 import { type RunOpsctlOptions } from '../opsctl/commands';
 import type { CommandResult } from '../opsctl/output';
-import type { ActionItem } from '../schemas/actionItem';
+import type { ApiTask, MalformedTaskError, SourceStatus } from '../shared/apiContract';
 
 export type OpsctlRunner = (argv: string[], options?: RunOpsctlOptions) => Promise<CommandResult>;
 
@@ -28,39 +28,6 @@ export interface RegisterApiRoutesOptions {
 
 interface TaskParams {
   id: string;
-}
-
-interface ApiTask {
-  id: string;
-  title: string | null;
-  status: string;
-  source: string;
-  tenant: string | null;
-  created_by: string | null;
-  action_item: ActionItem;
-}
-
-interface MalformedTaskError {
-  task_id: string;
-  title: string | null;
-  status: string;
-  error: string;
-}
-
-interface SourceStatus {
-  id?: string;
-  name: string;
-  source: string;
-  status: 'OK' | 'FAILED' | 'PAUSED' | 'STALE' | 'MISSING' | 'UNKNOWN';
-  enabled: boolean;
-  schedule?: string;
-  last_status?: string;
-  last_run_at?: string;
-  last_success_at?: string;
-  last_error?: string;
-  last_delivery_error?: string;
-  next_run_at?: string;
-  state?: string;
 }
 
 export function registerApiRoutes(server: FastifyInstance, options: RegisterApiRoutesOptions): void {
