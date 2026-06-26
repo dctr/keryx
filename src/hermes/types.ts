@@ -4,6 +4,7 @@ export interface HermesRunRequest {
   bin: string;
   args: string[];
   env: Record<string, string | undefined>;
+  timeoutMs?: number;
 }
 
 export interface HermesRunResult {

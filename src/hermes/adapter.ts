@@ -506,6 +506,7 @@ function parseJson(json: string): unknown {
 
 
 export async function defaultHermesRunner(request: HermesRunRequest): Promise<HermesRunResult> {
+  const timeoutMs = request.timeoutMs ?? 30_000;
   return new Promise((resolve, reject) => {
     const child = spawn(request.bin, request.args, {
       env: { ...process.env, ...dropUndefined(request.env) },
@@ -514,6 +515,14 @@ export async function defaultHermesRunner(request: HermesRunRequest): Promise<He
 
     let stdout = '';
     let stderr = '';
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill('SIGTERM');
+      reject(new Error(`Hermes runner timed out after ${timeoutMs}ms: ${request.bin} ${request.args.join(' ')}`));
+    }, timeoutMs);
 
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -523,8 +532,16 @@ export async function defaultHermesRunner(request: HermesRunRequest): Promise<He
     child.stderr.on('data', (chunk: string) => {
       stderr += chunk;
     });
-    child.on('error', reject);
+    child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
     child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       resolve({ stdout, stderr, exitCode: code ?? 1 });
     });
   });
