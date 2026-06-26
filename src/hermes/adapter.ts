@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 
 import type { KeryxConfig } from '../config';
+import { firstString, isNonEmptyString, isPlainObject } from '../util/object';
 import type { ActionItem } from '../schemas/actionItem';
 import type { ExecutionDecision } from '../schemas/executionDecision';
 import type { PolicyDecision } from '../schemas/policyDecision';
@@ -503,17 +504,7 @@ function parseJson(json: string): unknown {
   }
 }
 
-function firstString(...values: unknown[]): string | undefined {
-  return values.find(isNonEmptyString);
-}
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
-}
 
 export async function defaultHermesRunner(request: HermesRunRequest): Promise<HermesRunResult> {
   return new Promise((resolve, reject) => {

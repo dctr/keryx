@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { type KeryxConfig, loadConfig } from '../config';
 import { HermesCliAdapter, parseHermesVersion } from '../hermes/adapter';
 import type { HermesRunner, KanbanTask } from '../hermes/types';
+import { firstString, isPlainObject } from '../util/object';
 import { deriveBand, type Band, type TrackRecord } from '../policy/confidence';
 import { decideDisposition } from '../policy/disposition';
 import { loadPolicy } from '../policy/policyStore';
@@ -2154,10 +2155,5 @@ function validateTaskIdArgument(taskId: string): CommandResult | undefined {
   return taskId.trim().startsWith('-') ? fail('FAIL task id must not begin with "-"', 2) : undefined;
 }
 
-function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => typeof value === 'string' && value.trim().length > 0);
-}
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+

@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { KeryxConfig } from '../config';
 import type { ListTaskOptions } from '../hermes/adapter';
 import type { HermesRunner, KanbanTask } from '../hermes/types';
+import { firstString, isPlainObject } from '../util/object';
 import { type RunOpsctlOptions } from '../opsctl/commands';
 import type { CommandResult } from '../opsctl/output';
 import { formatValidationErrors } from '../opsctl/output';
@@ -478,13 +479,6 @@ function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
-function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim();
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
