@@ -50,25 +50,55 @@ export async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, opt
   const hermesCliPath = findExecutable(config.hermesBin, options.env);
   if (hermesCliPath) {
     lines.push({ level: 'OK', check: 'hermes-cli', message: `found ${hermesCliPath}` });
-    lines.push(await checkHermesVersion(adapter));
   } else {
     lines.push({ level: 'FAIL', check: 'hermes-cli', message: `not executable or not on PATH: ${config.hermesBin}` });
   }
 
-  const hermesHome = resolveHermesHome(config, options.env);
-  const pluginCheck = checkInstalledPlugin(hermesHome);
-  lines.push(pluginCheck);
-  lines.push(checkCollectorCreatorBundle(hermesHome));
-  lines.push(checkKanbanDefaultAssignee(hermesHome));
+  // Fan out all 4 independent Hermes reads concurrently. Sync checks run while they are
+  // in-flight. Results are emitted below in the SAME fixed order as the original sequential
+  // implementation so that integration-test assertions on line ordering are unaffected.
+  const versionPromise = hermesCliPath ? checkHermesVersion(adapter) : Promise.resolve(null);
+  const blockedPromise = adapter.listTasks({ status: 'blocked' });
+  const deliveryPromise = adapter.listDeliveryTargets();
+  const cronPromise = adapter.listCronJobs();
 
-  if (hasInstalledDependencies(PROJECT_ROOT)) {
-    lines.push({ level: 'OK', check: 'dependencies', message: 'project dependencies installed' });
-  } else {
-    lines.push({ level: 'FAIL', check: 'dependencies', message: 'run `npm install` from the Keryx project root' });
+  // Sync checks (computed while async reads are in-flight).
+  const hermesHome = resolveHermesHome(config, options.env);
+  const pluginLine = checkInstalledPlugin(hermesHome);
+  const collectorLine = checkCollectorCreatorBundle(hermesHome);
+  const kanbanAssigneeLine = checkKanbanDefaultAssignee(hermesHome);
+  const dependenciesLine: DoctorLine = hasInstalledDependencies(PROJECT_ROOT)
+    ? { level: 'OK', check: 'dependencies', message: 'project dependencies installed' }
+    : { level: 'FAIL', check: 'dependencies', message: 'run `npm install` from the Keryx project root' };
+
+  const [versionResult, blockedResult, deliveryResult, cronResult] = await Promise.allSettled([
+    versionPromise,
+    blockedPromise,
+    deliveryPromise,
+    cronPromise,
+  ]);
+
+  // Emit lines in original fixed order -----------------------------------------
+
+  // hermes-version (only when the CLI was found)
+  if (hermesCliPath) {
+    if (versionResult.status === 'fulfilled' && versionResult.value !== null) {
+      lines.push(versionResult.value);
+    } else if (versionResult.status === 'rejected') {
+      lines.push({
+        level: 'WARN',
+        check: 'hermes-version',
+        message: `could not determine Hermes version: ${versionResult.reason instanceof Error ? versionResult.reason.message : String(versionResult.reason)}`,
+      });
+    }
   }
 
-  try {
-    const blocked = await adapter.listTasks({ status: 'blocked' });
+  // plugin / collector-creator / kanban-default-assignee / dependencies (sync)
+  lines.push(pluginLine, collectorLine, kanbanAssigneeLine, dependenciesLine);
+
+  // hermes (blocked tasks)
+  if (blockedResult.status === 'fulfilled') {
+    const blocked = blockedResult.value;
     const invalidBodies = blocked
       .map((task) => ({ task, validation: validateTaskBody(task) }))
       .filter((entry) => !entry.validation.ok);
@@ -81,29 +111,34 @@ export async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, opt
     } else {
       lines.push({ level: 'OK', check: 'hermes', message: `board ${config.board} reachable; ${blocked.length} blocked Keryx cards visible` });
     }
-  } catch (error) {
+  } else {
+    const error = blockedResult.reason;
     lines.push({ level: 'FAIL', check: 'hermes', message: error instanceof Error ? error.message : String(error) });
   }
 
-  try {
-    const deliveryTargets = await adapter.listDeliveryTargets();
+  // delivery-targets
+  if (deliveryResult.status === 'fulfilled') {
+    const deliveryTargets = deliveryResult.value;
     lines.push({
       level: deliveryTargets.length > 0 ? 'OK' : 'WARN',
       check: 'delivery-targets',
       message: deliveryTargets.length > 0 ? `${deliveryTargets.length} target(s) available` : 'no Hermes delivery targets available',
     });
-  } catch (error) {
+  } else {
+    const error = deliveryResult.reason;
     lines.push({ level: 'FAIL', check: 'delivery-targets', message: error instanceof Error ? error.message : String(error) });
   }
 
-  try {
-    const jobs = normaliseCronJobs(await adapter.listCronJobs()).filter((job) => job.name.startsWith('keryx-'));
+  // cron
+  if (cronResult.status === 'fulfilled') {
+    const jobs = normaliseCronJobs(cronResult.value).filter((job) => job.name.startsWith('keryx-'));
     lines.push({
       level: jobs.length > 0 ? 'OK' : 'WARN',
       check: 'cron',
       message: jobs.length > 0 ? `${jobs.length} keryx-* collector job(s) visible` : 'no keryx-* collector cron jobs configured',
     });
-  } catch (error) {
+  } else {
+    const error = cronResult.reason;
     lines.push({ level: 'WARN', check: 'cron', message: `could not list cron jobs: ${error instanceof Error ? error.message : String(error)}` });
   }
 
