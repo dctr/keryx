@@ -509,7 +509,8 @@ function createdTaskId(created: unknown): string | null {
   return null;
 }
 
-// `auto-execute` is the creation+promotion entrypoint used by collectors/tests for a
+// `auto-execute` is the creation+promotion entrypoint used by collectors and tests
+// for a
 // card that must run silently. It validates, derives the disposition, and (only when
 // silent) creates the ready card plus its policy-decision comment. The Kanban worker —
 // not opsctl — performs the side effect and writes the keryx.outcome.v1 comment (§7.4).

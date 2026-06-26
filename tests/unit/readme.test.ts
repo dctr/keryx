@@ -26,6 +26,26 @@ describe('user-facing README', () => {
     }
   });
 
+  it('documents the v005 silent/digest/policy/metrics command surface', () => {
+    const readme = readReadme();
+
+    for (const command of [
+      'hermes keryx auto-execute',
+      'hermes keryx undo',
+      'hermes keryx digest --preview',
+      'hermes keryx default-resolve',
+      'hermes keryx metrics',
+      'hermes keryx regret',
+      'hermes keryx policy show',
+      'hermes keryx policy propose',
+      'hermes keryx policy revoke',
+      'validate-policy-decision',
+      'validate-outcome',
+    ]) {
+      expect(readme, `README should document ${command}`).toContain(command);
+    }
+  });
+
   it('starts with the temporary Hermes default-assignee warning', () => {
     const readme = readReadme();
 
@@ -77,7 +97,7 @@ describe('user-facing README', () => {
     for (const phrase of [
       'collectors/',
       '/keryx-collector-creator create a collector for <source>',
-      'keryx.action_item.v1',
+      'keryx.action_item.v2',
       'temporary sticky-block workaround',
       'idempotency key',
       'cursor safety',
