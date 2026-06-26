@@ -1,5 +1,9 @@
 {
   "board": "keryx",
   "defaultAssignee": "default",
-  "hermesBin": "hermes"
+  "hermesBin": "hermes",
+  "notifyTarget": "telegram",
+  "interruptBudget": { "perTierPerDay": { "urgent": 8, "soon": 4 } },
+  "quietHours": { "start": "22:00", "end": "07:00" },
+  "bandThresholds": { "warmingApprovals": 3, "trustedApprovals": 10, "maxOverrideRate": 0.15 }
 }
