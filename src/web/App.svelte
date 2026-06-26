@@ -105,8 +105,8 @@
     feedbackByTask = { ...feedbackByTask, [taskId]: target.value };
   }
 
-  function optionNeedsFeedback(task: TaskCardView, option: ActionOption): boolean {
-    return option.requires_input && (feedbackByTask[task.id] ?? '').trim().length === 0;
+  function optionNeedsFeedback(option: ActionOption, feedback: string): boolean {
+    return option.requires_input && feedback.trim().length === 0;
   }
 
   function feedbackPlaceholder(task: TaskCardView): string {
@@ -114,7 +114,7 @@
   }
 
   async function handleExecute(task: TaskCardView, option: ActionOption): Promise<void> {
-    if (optionNeedsFeedback(task, option)) {
+    if (optionNeedsFeedback(option, feedbackByTask[task.id] ?? '')) {
       errorMessage = `Feedback is required for ${option.label}.`;
       return;
     }
@@ -514,7 +514,7 @@
                 <button
                   class="primary"
                   type="button"
-                  disabled={pendingByTask[task.id] !== undefined || (option.requires_input && (feedbackByTask[task.id] ?? '').trim().length === 0)}
+                  disabled={pendingByTask[task.id] !== undefined || optionNeedsFeedback(option, feedbackByTask[task.id] ?? '')}
                   onclick={() => handleExecute(task, option)}
                 >
                   {pendingByTask[task.id] === 'execute' ? 'Executing…' : option.label}
