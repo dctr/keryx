@@ -348,7 +348,15 @@ export function parseKanbanTask(json: string): KanbanTask {
   if (!isPlainObject(parsed) || !isPlainObject(parsed.task)) {
     throw new Error('Hermes Kanban show JSON did not contain a task object');
   }
-  return normaliseKanbanTask(parsed.task);
+  const task = normaliseKanbanTask(parsed.task);
+  // The live `hermes kanban show --json` returns `comments` as a TOP-LEVEL sibling of
+  // `task`, not nested inside it. Merge the sibling on so comment-reading callers
+  // (digest/metrics/track-record/default-resolve/dedupe) actually see them. Fall back to
+  // a nested `task.comments` if a future envelope embeds them there instead.
+  if (Array.isArray(parsed.comments)) {
+    return { ...task, comments: parsed.comments as KanbanTask['comments'] };
+  }
+  return task;
 }
 
 export function parseDeliveryTargets(json: string): DeliveryTarget[] {

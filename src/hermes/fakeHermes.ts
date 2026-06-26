@@ -27,8 +27,13 @@ export function createFakeHermes(options: FakeHermesOptions = {}): FakeHermes {
     if (matches(request.args, ['kanban', '--board']) && request.args.includes('show')) {
       const taskId = request.args[4];
       const task = tasks.find((candidate) => candidate.id === taskId);
-      // `show --json` DOES embed comments — this is the only source of per-task comments.
-      return task ? ok({ task }) : fail(`No fake task found for ${taskId}`);
+      if (!task) {
+        return fail(`No fake task found for ${taskId}`);
+      }
+      // Model the live CLI envelope: `show --json` returns `comments` as a TOP-LEVEL
+      // sibling of `task`, NOT nested inside it. This is the only source of per-task comments.
+      const { comments = [], ...taskWithoutComments } = task;
+      return ok({ task: taskWithoutComments, comments });
     }
 
     if (matches(request.args, ['send', '--list'])) {

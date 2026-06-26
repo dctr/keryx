@@ -187,8 +187,8 @@ describe('Hermes CLI adapter', () => {
       { id: 't_b', status: 'blocked' },
     ]);
     const showOutputs: Record<string, string> = {
-      t_a: JSON.stringify({ task: { id: 't_a', status: 'done', comments: [{ body: '{"schema":"keryx.outcome.v1"}' }] } }),
-      t_b: JSON.stringify({ task: { id: 't_b', status: 'blocked', comments: [] } }),
+      t_a: JSON.stringify({ task: { id: 't_a', status: 'done' }, comments: [{ body: '{"schema":"keryx.outcome.v1"}' }] }),
+      t_b: JSON.stringify({ task: { id: 't_b', status: 'blocked' }, comments: [] }),
     };
     const runner = vi.fn<HermesRunner>(async (request) => {
       if (request.args[3] === 'list') {
@@ -220,6 +220,25 @@ describe('Hermes CLI adapter', () => {
     expect(() => parseKanbanTasks(JSON.stringify({ tasks: [{ id: 't_1', status: 'blocked' }] }))).toThrow(
       /Hermes Kanban list JSON did not contain a task array/,
     );
+  });
+
+  it('merges the top-level comments sibling from the real show envelope onto the task', () => {
+    // The live `hermes kanban show --json` puts `comments` as a TOP-LEVEL sibling of
+    // `task`, NOT nested inside it. parseKanbanTask must merge them so the comment-reading
+    // callers (digest/metrics/track-record/default-resolve/dedupe via listTasksWithComments)
+    // actually see outcomes/decisions against the real CLI.
+    const showEnvelope = JSON.stringify({
+      task: { id: 't_live', status: 'done' },
+      latest_summary: null,
+      parents: [],
+      children: [],
+      comments: [{ author: 'default', body: '{"schema":"keryx.outcome.v1"}', created_at: 1 }],
+    });
+    expect(parseKanbanTask(showEnvelope)).toEqual({
+      id: 't_live',
+      status: 'done',
+      comments: [{ author: 'default', body: '{"schema":"keryx.outcome.v1"}', created_at: 1 }],
+    });
   });
 
   it('normalises Hermes send list JSON into delivery targets', () => {
