@@ -64,9 +64,11 @@ export function composeDigest(outcomes: DigestOutcome[], options: ComposeDigestO
     byCategory.set(category, lines);
   }
 
+  // Precompute a Map once so the comparator is O(1) per call instead of O(n).
+  const orderMap = new Map(order.map((cat, i) => [cat, i]));
   const categories: DigestCategory[] = [...byCategory.entries()]
     .map(([category, lines]) => ({ category, lines }))
-    .sort((left, right) => compareCategories(left.category, right.category, order));
+    .sort((left, right) => compareCategories(left.category, right.category, orderMap));
 
   if (categories.length === 0) {
     return { silent: true, message: '[SILENT]', categories: [] };
@@ -81,11 +83,9 @@ export function composeDigest(outcomes: DigestOutcome[], options: ComposeDigestO
 
 // Listed categories sort by their position in the relevancy order; unlisted ones come
 // after, ordered alphabetically. Emoji/labels are preserved as-is.
-function compareCategories(left: string, right: string, order: string[]): number {
-  const leftIndex = order.indexOf(left);
-  const rightIndex = order.indexOf(right);
-  const leftRank = leftIndex === -1 ? Number.POSITIVE_INFINITY : leftIndex;
-  const rightRank = rightIndex === -1 ? Number.POSITIVE_INFINITY : rightIndex;
+function compareCategories(left: string, right: string, orderMap: Map<string, number>): number {
+  const leftRank = orderMap.get(left) ?? Number.POSITIVE_INFINITY;
+  const rightRank = orderMap.get(right) ?? Number.POSITIVE_INFINITY;
   if (leftRank !== rightRank) return leftRank - rightRank;
   return left.localeCompare(right);
 }

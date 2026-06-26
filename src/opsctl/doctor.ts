@@ -31,7 +31,14 @@ const COLLECTOR_CREATOR_BUNDLE_FILE = 'keryx-collector-creator.yaml';
 const COLLECTOR_CREATOR_BUNDLE_COMMAND = '/keryx-collector-creator';
 const COLLECTOR_CREATOR_PLUGIN_SKILL = 'keryx:keryx-collector-creator';
 
-export const PROJECT_ROOT = resolveProjectRoot(dirname(fileURLToPath(import.meta.url)));
+// Lazy: computed on first access to avoid sync dir walk + readFileSync at module load time.
+let _projectRoot: string | undefined;
+export function getProjectRoot(): string {
+  if (_projectRoot === undefined) {
+    _projectRoot = resolveProjectRoot(dirname(fileURLToPath(import.meta.url)));
+  }
+  return _projectRoot;
+}
 
 // ---------------------------------------------------------------------------
 // doctor
@@ -67,7 +74,7 @@ export async function doctor(config: KeryxConfig, adapter: HermesCliAdapter, opt
   const pluginLine = checkInstalledPlugin(hermesHome);
   const collectorLine = checkCollectorCreatorBundle(hermesHome);
   const kanbanAssigneeLine = checkKanbanDefaultAssignee(hermesHome);
-  const dependenciesLine: DoctorLine = hasInstalledDependencies(PROJECT_ROOT)
+  const dependenciesLine: DoctorLine = hasInstalledDependencies(getProjectRoot())
     ? { level: 'OK', check: 'dependencies', message: 'project dependencies installed' }
     : { level: 'FAIL', check: 'dependencies', message: 'run `npm install` from the Keryx project root' };
 

@@ -79,16 +79,23 @@ const SCHEMA_COMMANDS = {
 
 const SCHEMA_NAMES = Object.keys(SCHEMA_COMMANDS).join(', ');
 
+// Cache validated schema text per name so the readFileSync + JSON round-trip only runs once.
+const schemaTextCache = new Map<string, string>();
+
 export function schemaCommand(name: string | undefined): CommandResult {
   if (!name || !(name in SCHEMA_COMMANDS)) {
     return fail(`FAIL schema requires one of: ${SCHEMA_NAMES}`, 2);
   }
+
+  const cached = schemaTextCache.get(name);
+  if (cached !== undefined) return ok(cached);
 
   const schema = SCHEMA_COMMANDS[name as keyof typeof SCHEMA_COMMANDS];
   const schemaText = readFileSync(schema.fileUrl, 'utf8');
   if (JSON.stringify(JSON.parse(schemaText)) !== JSON.stringify(schema.schema)) {
     return fail(`FAIL schema import does not match repository file: ${name}`);
   }
+  schemaTextCache.set(name, schemaText);
   return ok(schemaText);
 }
 
