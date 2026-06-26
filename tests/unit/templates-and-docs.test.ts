@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
@@ -7,13 +7,11 @@ import { validateActionItem } from '../../src/schemas/actionItem';
 
 const repoRoot = process.cwd();
 
+// v005 deleted the committed collectors/ folder: source-specific collectors are now
+// authored into Hermes' own space via /keryx-collector-creator, never committed here.
+// The required files are therefore only the support docs and deployment examples.
 const requiredFiles = [
   'AGENTS.md',
-  'collectors/README.md',
-  'collectors/bash-first-template/keryx-example-scan.sh',
-  'collectors/bash-first-template/cron-prompt.md',
-  'collectors/bash-first-template/state.example.json',
-  'collectors/direct-agent-template/cron-prompt.md',
   'docs/architecture.md',
   'docs/collector-authoring.md',
   'docs/security.md',
@@ -33,51 +31,21 @@ const privatePatternExamples = [
 const activeDocsAndTemplates = [
   'README.md',
   'AGENTS.md',
-  'collectors/README.md',
-  'collectors/bash-first-template/cron-prompt.md',
-  'collectors/direct-agent-template/cron-prompt.md',
   'docs/architecture.md',
   'docs/collector-authoring.md',
   'docs/security.md',
   'docs/operations.md',
 ] as const;
 
+// Live docs that walk an author through the canonical card-creation loop.
 const collectorWorkflowDocs = [
-  'collectors/README.md',
-  'collectors/bash-first-template/cron-prompt.md',
-  'collectors/direct-agent-template/cron-prompt.md',
+  'README.md',
   'docs/collector-authoring.md',
-] as const;
-
-const collectorSkillLoadDocs = [
-  ...collectorWorkflowDocs,
-  'collectors/bash-first-template/keryx-example-scan.sh',
-] as const;
-
-// Docs that walk an author through wiring the bash-first scanner into a Hermes
-// cron job. Hermes only runs cron scripts that live directly under
-// $HERMES_HOME/scripts/ (absolute paths and ../ traversal are rejected at both
-// creation and run time), so these must document copying the adapted scanner
-// there and referencing it by bare filename.
-const cronScriptPlacementDocs = [
-  'collectors/bash-first-template/cron-prompt.md',
-  'docs/collector-authoring.md',
-] as const;
-
-// Live docs/templates where a cron `Script:` example may legitimately appear.
-// docs/archive/** is historical and intentionally excluded.
-const cronScriptExampleDocs = activeDocsAndTemplates;
-
-// Files that must warn the operator the bash-first scanner shells out to node.
-const nodeOnPathDocs = [
-  'collectors/bash-first-template/keryx-example-scan.sh',
-  'collectors/README.md',
+  'docs/operations.md',
 ] as const;
 
 const sourceSpecificSkillDocs = [
-  'collectors/README.md',
-  'collectors/bash-first-template/cron-prompt.md',
-  'collectors/direct-agent-template/cron-prompt.md',
+  'README.md',
   'docs/collector-authoring.md',
   'docs/operations.md',
 ] as const;
@@ -96,30 +64,39 @@ const slashCommandDocs = [
   'skills/keryx/keryx-collector/SKILL.md',
 ] as const;
 
+// Live docs that document attaching the plugin-qualified worker skill to cards.
 const workerAttachmentDocs = [
   'README.md',
   'AGENTS.md',
-  'collectors/README.md',
-  'collectors/bash-first-template/cron-prompt.md',
-  'collectors/direct-agent-template/cron-prompt.md',
   'docs/architecture.md',
   'docs/collector-authoring.md',
   'docs/operations.md',
 ] as const;
 
-describe('collector templates and support docs', () => {
-  it('ships every collector template, support document, and deployment example', () => {
+// Live docs that document loading the generic plugin-qualified collector skill.
+const collectorSkillLoadDocs = [
+  'README.md',
+  'docs/architecture.md',
+  'docs/collector-authoring.md',
+  'docs/operations.md',
+] as const;
+
+// Live docs/templates where a cron `Script:` example may legitimately appear.
+// docs/archive/** is historical and intentionally excluded.
+const cronScriptExampleDocs = activeDocsAndTemplates;
+
+describe('support docs and deployment examples', () => {
+  it('ships every support document and deployment example', () => {
     for (const relativePath of requiredFiles) {
       expect(existsSync(join(repoRoot, relativePath)), `${relativePath} should exist`).toBe(true);
     }
   });
 
-  it('marks only the bash scanner template as executable', () => {
-    expect(isExecutable('collectors/bash-first-template/keryx-example-scan.sh')).toBe(true);
-
-    for (const relativePath of requiredFiles.filter((path) => path !== 'collectors/bash-first-template/keryx-example-scan.sh')) {
-      expect(isExecutable(relativePath), `${relativePath} should not be executable`).toBe(false);
-    }
+  it('no longer ships a committed collectors/ folder', () => {
+    expect(
+      existsSync(join(repoRoot, 'collectors')),
+      'collectors/ must not be committed; collectors are authored into Hermes space via /keryx-collector-creator',
+    ).toBe(false);
   });
 
   it('keeps cloneable files free of user-specific IDs and private paths', () => {
@@ -130,22 +107,7 @@ describe('collector templates and support docs', () => {
     }
   });
 
-  it('documents both collector patterns and the required safety contract', () => {
-    const bashPrompt = readRequiredFile('collectors/bash-first-template/cron-prompt.md');
-    const directPrompt = readRequiredFile('collectors/direct-agent-template/cron-prompt.md');
-    const collectorDocs = readRequiredFile('docs/collector-authoring.md');
-
-    for (const text of [bashPrompt, directPrompt, collectorDocs]) {
-      expect(text).toContain('keryx.action_item.v1');
-      expect(text).toContain('untrusted source content');
-      expect(text).toContain('idempotency key');
-      expect(text).toContain('cursor safety');
-      expect(text).toContain('initial-status blocked');
-      expect(text).toContain('keryx-worker');
-    }
-  });
-
-  it('uses plugin-qualified Keryx skill names wherever collector docs attach skills', () => {
+  it('uses plugin-qualified Keryx skill names wherever docs attach skills', () => {
     for (const relativePath of workerAttachmentDocs) {
       const text = readRequiredFile(relativePath);
 
@@ -251,32 +213,55 @@ describe('collector templates and support docs', () => {
     }
   });
 
-  it('uses only schema-valid autonomy values in collector examples', () => {
-    const allowed = new Set(['auto', 'minimal', 'research', 'complex']);
+  it('uses only schema-valid risk-axis enums in collector-authoring option examples', () => {
+    const allowedReversibility = new Set(['read_only', 'reversible', 'compensable', 'irreversible']);
+    const allowedBlastRadius = new Set(['self', 'external']);
 
     for (const relativePath of collectorWorkflowDocs) {
       const text = readRequiredFile(relativePath);
-      const autonomyValues = [...text.matchAll(/"autonomy"\s*:\s*"([^"]+)"/g)].map((match) => match[1]);
 
-      for (const autonomy of autonomyValues) {
-        expect(allowed.has(autonomy), `${relativePath} uses invalid autonomy value ${autonomy}`).toBe(true);
+      const reversibilityValues = [...text.matchAll(/"reversibility"\s*:\s*"([^"]+)"/g)].map((match) => match[1]);
+      for (const value of reversibilityValues) {
+        expect(allowedReversibility.has(value), `${relativePath} uses invalid reversibility value ${value}`).toBe(true);
+      }
+
+      const blastRadiusValues = [...text.matchAll(/"blast_radius"\s*:\s*"([^"]+)"/g)].map((match) => match[1]);
+      for (const value of blastRadiusValues) {
+        expect(allowedBlastRadius.has(value), `${relativePath} uses invalid blast_radius value ${value}`).toBe(true);
       }
     }
   });
 
-  it('keeps documented collector-authoring action-card JSON examples valid against the repository schema', () => {
+  it('keeps documented collector-authoring action-card JSON examples valid against the v2 repository schema', () => {
     const relativePath = 'docs/collector-authoring.md';
     const actionItemExamples = extractJsonCodeBlocks(readRequiredFile(relativePath))
       .map((block) => JSON.parse(block) as unknown)
-      .filter((value) => typeof value === 'object' && value !== null && (value as { schema?: unknown }).schema === 'keryx.action_item.v1');
+      .filter((value) => typeof value === 'object' && value !== null && (value as { schema?: unknown }).schema === 'keryx.action_item.v2');
 
-    expect(actionItemExamples, `${relativePath} should include an action-item example`).not.toHaveLength(0);
+    expect(actionItemExamples, `${relativePath} should include a v2 action-item example`).not.toHaveLength(0);
 
     for (const example of actionItemExamples) {
       const result = validateActionItem(example);
       const errors = result.ok ? '' : JSON.stringify(result.errors);
 
       expect(result.ok, `${relativePath} action-item example should validate: ${errors}`).toBe(true);
+    }
+  });
+
+  it('documents the v005 collector-authoring safety contract', () => {
+    const collectorDocs = readRequiredFile('docs/collector-authoring.md');
+
+    for (const phrase of [
+      'keryx.action_item.v2',
+      'untrusted source content',
+      'idempotency key',
+      'cursor safety',
+      'read_only',
+      'blast_radius',
+      'keryx:keryx-worker',
+      'keryx-collector-<source>',
+    ]) {
+      expect(collectorDocs, `collector-authoring should mention ${phrase}`).toContain(phrase);
     }
   });
 
@@ -293,33 +278,6 @@ describe('collector templates and support docs', () => {
       'plugin-qualified Keryx skill names',
     ]) {
       expect(agents, `AGENTS.md should mention ${phrase}`).toContain(phrase);
-    }
-  });
-
-  it('provides a bash-first scanner that reads state and stays quiet when no agent wake is needed', () => {
-    const scanner = readRequiredFile('collectors/bash-first-template/keryx-example-scan.sh');
-    const state = readRequiredFile('collectors/bash-first-template/state.example.json');
-
-    expect(scanner).toContain('set -euo pipefail');
-    expect(scanner).toContain('KERYX_STATE_FILE');
-    expect(scanner).toContain('"wakeAgent": false');
-    expect(scanner).toContain('"wakeAgent": true');
-    expect(scanner).not.toContain('hermes kanban');
-    expect(JSON.parse(state)).toMatchObject({ schema: 'keryx.collector_state.v1' });
-  });
-
-  it('documents copying the adapted collector script into $HERMES_HOME/scripts and referencing it by bare filename', () => {
-    for (const relativePath of cronScriptPlacementDocs) {
-      const text = readRequiredFile(relativePath);
-
-      expect(
-        text,
-        `${relativePath} should document copying the adapted scanner to $HERMES_HOME/scripts/keryx-collector-<source>.sh`,
-      ).toContain('$HERMES_HOME/scripts/keryx-collector-<source>.sh');
-      expect(
-        text,
-        `${relativePath} should explain Hermes only runs cron scripts under $HERMES_HOME/scripts`,
-      ).toMatch(/\$HERMES_HOME\/scripts/);
     }
   });
 
@@ -349,16 +307,6 @@ describe('collector templates and support docs', () => {
     ).toEqual([]);
   });
 
-  it('warns that the bash-first scanner requires node on the cron scheduler PATH', () => {
-    for (const relativePath of nodeOnPathDocs) {
-      const text = readRequiredFile(relativePath);
-
-      expect(text, `${relativePath} should note node must be on the cron scheduler PATH`).toMatch(
-        /node[^\n]*on[^\n]*PATH/i,
-      );
-    }
-  });
-
   it('covers architecture, security, operations, and deployment boundaries', () => {
     const architecture = readRequiredFile('docs/architecture.md');
     const security = readRequiredFile('docs/security.md');
@@ -366,20 +314,16 @@ describe('collector templates and support docs', () => {
     const systemd = readRequiredFile('deploy/systemd/keryx.service.example');
     const caddy = readRequiredFile('deploy/caddy/Caddyfile.example');
 
-    for (const phrase of ['Kanban is the central register', 'blocked', 'ready', 'running', 'done', 'opsctl execute']) {
-      expect(architecture).toContain(phrase);
+    for (const phrase of ['Kanban is the central register', 'blocked', 'ready', 'running', 'done', 'review log', 'silent', 'interrupt', 'disposition']) {
+      expect(architecture, `architecture guide should mention ${phrase}`).toContain(phrase);
     }
 
-    for (const phrase of ['source content is untrusted', 'no raw event persistence', 'trusted execution decision', 'visible browser']) {
-      expect(security).toContain(phrase);
+    for (const phrase of ['source content is untrusted', 'no raw event persistence', 'trusted execution decision', 'visible browser', 'absolute floor', 'read_only', 'policy is the trust gate']) {
+      expect(security, `security guide should mention ${phrase}`).toContain(phrase);
     }
 
-    for (const phrase of ['source status', 'cron jobs', 'Kanban dispatch', 'logs', 'stuck cards']) {
-      expect(operations).toContain(phrase);
-    }
-
-    for (const phrase of ['$HERMES_HOME/plugins/keryx', 'hermes plugins enable keryx', './keryx-setup.sh']) {
-      expect(operations, `operations guide should document ${phrase}`).toContain(phrase);
+    for (const phrase of ['source status', 'cron jobs', 'Kanban dispatch', 'logs', 'stuck cards', '$HERMES_HOME/plugins/keryx', 'hermes plugins enable keryx', './keryx-setup.sh', 'keryx-digest']) {
+      expect(operations, `operations guide should mention ${phrase}`).toContain(phrase);
     }
 
     expect(systemd).toContain('npm start');
@@ -392,10 +336,10 @@ describe('collector templates and support docs', () => {
 });
 
 describe('created collector skills target Hermes space, not the repo', () => {
-  // Files in scope for the grep-style convention checks: the live skill, collector, and
-  // docs trees, plus README.md. docs/archive/** is historical PRD/PLAN written before this
-  // convention existed and is intentionally excluded (see parent task t_7269c104 caveats).
-  const conventionScanDirs = ['skills', 'collectors', 'docs'] as const;
+  // Files in scope for the grep-style convention checks: the live skill and docs trees,
+  // plus README.md. The committed collectors/ folder no longer exists. docs/archive/** is
+  // historical PRD/PLAN written before this convention existed and is intentionally excluded.
+  const conventionScanDirs = ['skills', 'docs'] as const;
   const conventionScanFiles = ['README.md'] as const;
   const excludedDir = join(repoRoot, 'docs', 'archive');
 
@@ -478,10 +422,6 @@ describe('created collector skills target Hermes space, not the repo', () => {
 
 function readRequiredFile(relativePath: string): string {
   return readFileSync(join(repoRoot, relativePath), 'utf8');
-}
-
-function isExecutable(relativePath: string): boolean {
-  return Boolean(statSync(join(repoRoot, relativePath)).mode & 0o111);
 }
 
 function extractJsonCodeBlocks(text: string): string[] {
