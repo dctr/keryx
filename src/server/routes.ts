@@ -116,120 +116,65 @@ export function registerApiRoutes(server: FastifyInstance, options: RegisterApiR
   });
 
   server.post<{ Params: TaskParams }>('/api/tasks/:id/execute', async (request, reply) => {
-    noStore(reply);
-    const idCheck = validateTaskId(request.params.id);
-    if (!idCheck.ok) {
-      return sendApiError(reply, 400, 'VALIDATION_ERROR', idCheck.message);
-    }
+    return handleMutation(reply, request.params.id, request.body, options, (body) => {
+      const optionId = firstString(body.option_id, body.selected_option_id);
+      if (!optionId) return { ok: false, message: 'option_id must be a non-empty string' };
 
-    const body = requestBodyObject(request.body);
-    if (!body.ok) {
-      return sendApiError(reply, 400, 'VALIDATION_ERROR', 'request body must be a JSON object');
-    }
+      const feedback = optionalString(body.feedback, 'feedback');
+      if (!feedback.ok) return { ok: false, message: feedback.message };
 
-    const optionId = firstString(body.value.option_id, body.value.selected_option_id);
-    if (!optionId) {
-      return sendApiError(reply, 400, 'VALIDATION_ERROR', 'option_id must be a non-empty string');
-    }
-
-    const feedback = optionalString(body.value.feedback, 'feedback');
-    if (!feedback.ok) {
-      return sendApiError(reply, 400, 'VALIDATION_ERROR', feedback.message);
-    }
-
-    const argv = ['execute', request.params.id, '--option', optionId];
-    if (feedback.value) {
-      argv.push('--feedback', feedback.value);
-    }
-
-    const result = await options.runOpsctl(argv, buildOpsctlOptions(options));
-    return sendCommandResult(reply, result);
+      const argv = ['execute', request.params.id, '--option', optionId];
+      if (feedback.value) argv.push('--feedback', feedback.value);
+      return { ok: true, argv };
+    });
   });
 
   server.post<{ Params: TaskParams }>('/api/tasks/:id/dismiss', async (request, reply) => {
-    noStore(reply);
-    const idCheck = validateTaskId(request.params.id);
-    if (!idCheck.ok) {
-      return sendApiError(reply, 400, 'VALIDATION_ERROR', idCheck.message);
-    }
+    return handleMutation(reply, request.params.id, request.body, options, (body) => {
+      const reason = optionalString(body.reason, 'reason');
+      if (!reason.ok) return { ok: false, message: reason.message };
 
-    const body = requestBodyObject(request.body);
-    if (!body.ok) {
-      return sendApiError(reply, 400, 'VALIDATION_ERROR', 'request body must be a JSON object');
-    }
-
-    const reason = optionalString(body.value.reason, 'reason');
-    if (!reason.ok) {
-      return sendApiError(reply, 400, 'VALIDATION_ERROR', reason.message);
-    }
-
-    const argv = ['dismiss', request.params.id];
-    if (reason.value) {
-      argv.push('--reason', reason.value);
-    }
-
-    const result = await options.runOpsctl(argv, buildOpsctlOptions(options));
-    return sendCommandResult(reply, result);
+      const argv = ['dismiss', request.params.id];
+      if (reason.value) argv.push('--reason', reason.value);
+      return { ok: true, argv };
+    });
   });
 
   // Honest undo (PRD §7.4, D3): reverse/correct an executed card per its reversibility.
   // Delegates to the shared opsctl logic, which reads the executed option's reversibility
   // and creates the appropriate reversal / labeled-correction / corrective-triage card.
   server.post<{ Params: TaskParams }>('/api/tasks/:id/undo', async (request, reply) => {
-    noStore(reply);
-    const idCheck = validateTaskId(request.params.id);
-    if (!idCheck.ok) {
-      return sendApiError(reply, 400, 'VALIDATION_ERROR', idCheck.message);
-    }
-
-    const result = await options.runOpsctl(['undo', request.params.id], buildOpsctlOptions(options));
-    return sendCommandResult(reply, result);
+    return handleMutation(reply, request.params.id, request.body, options, () => ({
+      ok: true,
+      argv: ['undo', request.params.id],
+    }));
   });
 
   // Mark-reviewed (PRD §7.10, §9): archive a reviewed review-log (done) card so it leaves
   // the review log. Delegates to the dedicated opsctl `mark-reviewed` command, which writes
   // a `keryx:reviewed` marker comment and archives the card.
   server.post<{ Params: TaskParams }>('/api/tasks/:id/mark-reviewed', async (request, reply) => {
-    noStore(reply);
-    const idCheck = validateTaskId(request.params.id);
-    if (!idCheck.ok) {
-      return sendApiError(reply, 400, 'VALIDATION_ERROR', idCheck.message);
-    }
-
-    const result = await options.runOpsctl(['mark-reviewed', request.params.id], buildOpsctlOptions(options));
-    return sendCommandResult(reply, result);
+    return handleMutation(reply, request.params.id, request.body, options, () => ({
+      ok: true,
+      argv: ['mark-reviewed', request.params.id],
+    }));
   });
 
   // Escalation-regret signal (PRD §7.9): one-click feedback that feeds confidence bands.
   server.post<{ Params: TaskParams }>('/api/tasks/:id/regret', async (request, reply) => {
-    noStore(reply);
-    const idCheck = validateTaskId(request.params.id);
-    if (!idCheck.ok) {
-      return sendApiError(reply, 400, 'VALIDATION_ERROR', idCheck.message);
-    }
+    return handleMutation(reply, request.params.id, request.body, options, (body) => {
+      const kind = body.kind;
+      if (kind !== 'should_have_acted' && kind !== 'should_have_asked') {
+        return { ok: false, message: 'kind must be should_have_acted or should_have_asked' };
+      }
 
-    const body = requestBodyObject(request.body);
-    if (!body.ok) {
-      return sendApiError(reply, 400, 'VALIDATION_ERROR', 'request body must be a JSON object');
-    }
+      const note = optionalString(body.note, 'note');
+      if (!note.ok) return { ok: false, message: note.message };
 
-    const kind = body.value.kind;
-    if (kind !== 'should_have_acted' && kind !== 'should_have_asked') {
-      return sendApiError(reply, 400, 'VALIDATION_ERROR', 'kind must be should_have_acted or should_have_asked');
-    }
-
-    const note = optionalString(body.value.note, 'note');
-    if (!note.ok) {
-      return sendApiError(reply, 400, 'VALIDATION_ERROR', note.message);
-    }
-
-    const argv = ['regret', request.params.id, '--kind', kind];
-    if (note.value) {
-      argv.push('--note', note.value);
-    }
-
-    const result = await options.runOpsctl(argv, buildOpsctlOptions(options));
-    return sendCommandResult(reply, result);
+      const argv = ['regret', request.params.id, '--kind', kind];
+      if (note.value) argv.push('--note', note.value);
+      return { ok: true, argv };
+    });
   });
 
   // Policy inspection (PRD §9): read a collector's active/shadow rules + derived bands.
@@ -298,6 +243,35 @@ function buildOpsctlOptions(options: RegisterApiRoutesOptions): RunOpsctlOptions
     hermesRunner: options.hermesRunner ?? options.opsctlOptions.hermesRunner,
     ...(options.now ? { now: options.now } : {}),
   };
+}
+
+type BuildArgvResult = { ok: true; argv: string[] } | { ok: false; message: string };
+
+async function handleMutation(
+  reply: FastifyReply,
+  id: string,
+  rawBody: unknown,
+  opts: RegisterApiRoutesOptions,
+  buildArgv: (body: Record<string, unknown>) => BuildArgvResult,
+): Promise<unknown> {
+  noStore(reply);
+  const idCheck = validateTaskId(id);
+  if (!idCheck.ok) {
+    return sendApiError(reply, 400, 'VALIDATION_ERROR', idCheck.message);
+  }
+
+  const body = requestBodyObject(rawBody);
+  if (!body.ok) {
+    return sendApiError(reply, 400, 'VALIDATION_ERROR', 'request body must be a JSON object');
+  }
+
+  const argvResult = buildArgv(body.value);
+  if (!argvResult.ok) {
+    return sendApiError(reply, 400, 'VALIDATION_ERROR', argvResult.message);
+  }
+
+  const result = await opts.runOpsctl(argvResult.argv, buildOpsctlOptions(opts));
+  return sendCommandResult(reply, result);
 }
 
 function sendCommandResult(reply: FastifyReply, result: CommandResult) {
