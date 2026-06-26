@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 
 import type { KeryxConfig } from '../config';
+import { mapWithConcurrency } from '../util/concurrency';
 import { firstString, isNonEmptyString, isPlainObject } from '../util/object';
 import type { ActionItem } from '../schemas/actionItem';
 import type { ExecutionDecision } from '../schemas/executionDecision';
@@ -51,12 +52,10 @@ export class HermesCliAdapter {
   // stays unchanged for callers (UI task list, doctor, list-cards) that never read comments.
   async listTasksWithComments(options: ListTaskOptions = {}): Promise<KanbanTask[]> {
     const tasks = await this.listTasks(options);
-    return Promise.all(
-      tasks.map(async (task) => {
-        const shown = await this.showTask(task.id);
-        return { ...task, comments: shown.comments ?? [] };
-      }),
-    );
+    return mapWithConcurrency(tasks, 8, async (task) => {
+      const shown = await this.showTask(task.id);
+      return { ...task, comments: shown.comments ?? [] };
+    });
   }
 
   async showTask(taskId: string): Promise<KanbanTask> {
