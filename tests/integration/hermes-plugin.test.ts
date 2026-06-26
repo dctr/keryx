@@ -228,6 +228,47 @@ print(json.dumps({'cli': ctx.cli, 'skills': ctx.skills}, sort_keys=True))
     }
   });
 
+  it('uses schemas/action-item.v2.schema.json as its repository root marker', async () => {
+    const { stdout, stderr } = await runPython(`
+import importlib.util, json, pathlib, tempfile
+plugin_path = pathlib.Path('hermes-plugin/__init__.py').resolve()
+spec = importlib.util.spec_from_file_location('keryx_plugin_marker_test', plugin_path)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+repo_root = pathlib.Path('.').resolve()
+results = {'repo_root_is_keryx': mod._is_keryx_root(repo_root)}
+
+with tempfile.TemporaryDirectory() as tmp:
+    base = pathlib.Path(tmp)
+    (base / 'bin').mkdir()
+    (base / 'bin' / 'opsctl').write_text('')
+    (base / 'skills' / 'keryx' / 'keryx-worker').mkdir(parents=True)
+    (base / 'skills' / 'keryx' / 'keryx-worker' / 'SKILL.md').write_text('')
+    (base / 'schemas').mkdir()
+    (base / 'schemas' / 'action-item.v1.schema.json').write_text('{}')
+    results['legacy_v1_only_is_keryx'] = mod._is_keryx_root(base)
+    (base / 'schemas' / 'action-item.v2.schema.json').write_text('{}')
+    results['v2_present_is_keryx'] = mod._is_keryx_root(base)
+
+print(json.dumps(results, sort_keys=True))
+`);
+
+    expect(stderr).toBe('');
+    const result = JSON.parse(stdout) as {
+      repo_root_is_keryx: boolean;
+      legacy_v1_only_is_keryx: boolean;
+      v2_present_is_keryx: boolean;
+    };
+
+    // The real repository root carries the v2 schema, so it must resolve as a Keryx root.
+    expect(result.repo_root_is_keryx).toBe(true);
+    // A root that only has the dropped v1 schema must NOT be recognised: the marker is v2.
+    expect(result.legacy_v1_only_is_keryx).toBe(false);
+    // Adding the v2 schema makes the same root valid.
+    expect(result.v2_present_is_keryx).toBe(true);
+  });
+
   it('delegates CLI handling to bin/opsctl with repo-local defaults', async () => {
     const { stdout, stderr } = await runPython(`
 import argparse, importlib.util, json, os, pathlib
