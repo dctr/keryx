@@ -31,7 +31,7 @@ import {
 } from '../interrupt';
 import type { CommandResult, CronJobSummary } from '../output';
 import { fail, formatCronJobs, formatDeliveryTargets, formatTasks, formatTaskShow, formatValidationErrors, json, ok } from '../output';
-import { collectorSource, normaliseCronJobs, parseJsonFile, type ParsedArgs, type RunOpsctlOptions, stringFlag, validateTaskBody } from '../shared';
+import { collectorSource, normaliseCronJobs, parseJsonFile, type CommandContext, type RunOpsctlOptions, stringFlag, validateTaskBody } from '../shared';
 
 // ---------------------------------------------------------------------------
 // Schema map + schema command
@@ -95,7 +95,8 @@ export function schemaCommand(name: string | undefined): CommandResult {
 // template-card
 // ---------------------------------------------------------------------------
 
-export function templateCard(parsed: ParsedArgs, now: () => Date): CommandResult {
+export function templateCard(ctx: CommandContext): CommandResult {
+  const { parsed, now } = ctx;
   const source = stringFlag(parsed, 'source') ?? 'example';
   const collector = stringFlag(parsed, 'collector') ?? `keryx-${source}`;
   const externalId = `${source}:replace-me`;
@@ -301,12 +302,13 @@ async function createInterruptCard(
   return created;
 }
 
-export async function createCard(filePath: string | undefined, adapter: HermesCliAdapter, options: RunOpsctlOptions): Promise<CommandResult> {
+export async function createCard(ctx: CommandContext): Promise<CommandResult> {
+  const { parsed, adapter, now, options } = ctx;
+  const filePath = parsed.positionals[0];
   if (!filePath) {
     return fail('FAIL create-card requires a JSON file path', 2);
   }
 
-  const now = options.now ?? (() => new Date());
   const validation = validateActionItem(parseJsonFile(filePath));
   if (!validation.ok) {
     return fail(`FAIL invalid action card: ${filePath}\n${formatValidationErrors(validation.errors)}`);
@@ -335,12 +337,13 @@ export async function createCard(filePath: string | undefined, adapter: HermesCl
 // auto-execute
 // ---------------------------------------------------------------------------
 
-export async function autoExecute(filePath: string | undefined, adapter: HermesCliAdapter, options: RunOpsctlOptions): Promise<CommandResult> {
+export async function autoExecute(ctx: CommandContext): Promise<CommandResult> {
+  const { parsed, adapter, now, options } = ctx;
+  const filePath = parsed.positionals[0];
   if (!filePath) {
     return fail('FAIL auto-execute requires a JSON file path', 2);
   }
 
-  const now = options.now ?? (() => new Date());
   const validation = validateActionItem(parseJsonFile(filePath));
   if (!validation.ok) {
     return fail(`FAIL invalid action card: ${filePath}\n${formatValidationErrors(validation.errors)}`);
@@ -364,7 +367,8 @@ export async function autoExecute(filePath: string | undefined, adapter: HermesC
 // list / show / cron-status / delivery-targets
 // ---------------------------------------------------------------------------
 
-export async function listCards(parsed: ParsedArgs, adapter: HermesCliAdapter): Promise<CommandResult> {
+export async function listCards(ctx: CommandContext): Promise<CommandResult> {
+  const { parsed, adapter } = ctx;
   const tasks = await adapter.listTasks({
     status: stringFlag(parsed, 'status'),
     source: stringFlag(parsed, 'source'),
@@ -373,7 +377,9 @@ export async function listCards(parsed: ParsedArgs, adapter: HermesCliAdapter): 
   return parsed.flags.get('json') === true ? ok(json(tasks)) : ok(formatTasks(tasks));
 }
 
-export async function showCard(taskId: string | undefined, adapter: HermesCliAdapter): Promise<CommandResult> {
+export async function showCard(ctx: CommandContext): Promise<CommandResult> {
+  const { parsed, adapter } = ctx;
+  const taskId = parsed.positionals[0];
   if (!taskId) {
     return fail('FAIL show requires a task id', 2);
   }
@@ -387,12 +393,14 @@ export async function showCard(taskId: string | undefined, adapter: HermesCliAda
   return ok(formatTaskShow(task, 'OK'));
 }
 
-export async function cronStatus(adapter: HermesCliAdapter): Promise<CommandResult> {
+export async function cronStatus(ctx: CommandContext): Promise<CommandResult> {
+  const { adapter } = ctx;
   const jobs = normaliseCronJobs(await adapter.listCronJobs()).filter((job) => job.name.startsWith('keryx-'));
   return ok(formatCronJobs(jobs));
 }
 
-export async function deliveryTargets(parsed: ParsedArgs, adapter: HermesCliAdapter): Promise<CommandResult> {
+export async function deliveryTargets(ctx: CommandContext): Promise<CommandResult> {
+  const { parsed, adapter } = ctx;
   const targets = await adapter.listDeliveryTargets(stringFlag(parsed, 'platform'));
   return parsed.flags.get('json') === true ? ok(json(targets)) : ok(formatDeliveryTargets(targets));
 }

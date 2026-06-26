@@ -1,11 +1,10 @@
 // defaultResolveCmd: the expiring-default resolver for interrupt cards past their deadline.
 
-import { HermesCliAdapter } from '../../hermes/adapter';
 import { buildAutoResolutionOutcome, DEFAULT_RESOLVER_ACTOR, findResolvableInterrupts, resolveDefaultOption } from '../defaultResolver';
 import type { ActionItem } from '../../schemas/actionItem';
 import type { CommandResult } from '../output';
 import { json, ok } from '../output';
-import type { ParsedArgs } from '../shared';
+import { type CommandContext } from '../shared';
 
 // The trusted execution decision the resolver writes when auto-executing a default option.
 // approved_by/_via name the resolver (not "User") so the audit trail makes clear the
@@ -44,7 +43,8 @@ function buildAutoResolutionDismissal(actionItem: ActionItem, now: () => Date) {
 // to ready) or auto-dismissing it (record a dismissal + outcome, archive). Every
 // resolution writes a log_only keryx.outcome.v1 tagged delivered_via=keryx-default-resolver
 // so a re-run never double-resolves and the digest can report it. --preview only plans.
-export async function defaultResolveCmd(parsed: ParsedArgs, adapter: HermesCliAdapter, now: () => Date): Promise<CommandResult> {
+export async function defaultResolveCmd(ctx: CommandContext): Promise<CommandResult> {
+  const { parsed, adapter, now } = ctx;
   const preview = parsed.flags.get('preview') === true;
   const tasks = await adapter.listTasksWithComments();
   const resolvable = findResolvableInterrupts(tasks, now());

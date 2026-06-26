@@ -1,6 +1,5 @@
 // undo command group: honest reversal/correction of an executed card per its reversibility.
 
-import { HermesCliAdapter } from '../../hermes/adapter';
 import { parseActionItemFromTask } from '../../hermes/taskBody';
 import type { ActionItem, ActionOption } from '../../schemas/actionItem';
 import { validateActionItem } from '../../schemas/actionItem';
@@ -11,7 +10,7 @@ import { validatePolicyDecision } from '../../schemas/policyDecision';
 import type { KanbanTask } from '../../hermes/types';
 import type { CommandResult } from '../output';
 import { fail, formatValidationErrors, json, ok } from '../output';
-import { type ParsedArgs, type RunOpsctlOptions, validateTaskIdArgument } from '../shared';
+import { type CommandContext, validateTaskIdArgument } from '../shared';
 
 // ---------------------------------------------------------------------------
 // findExecutedOptionId — reads trusted comments to find what actually ran
@@ -208,8 +207,8 @@ function buildCorrectiveCard(
 // An option carrying an absolute_floor value (money/destructive/credential gate) is never
 // auto-reversed either — undo must not bypass the floor gates — so it routes to a corrective
 // card too. read_only options changed nothing, so there is nothing to undo.
-export async function undoCard(parsed: ParsedArgs, adapter: HermesCliAdapter, options: RunOpsctlOptions): Promise<CommandResult> {
-  const now = options.now ?? (() => new Date());
+export async function undoCard(ctx: CommandContext): Promise<CommandResult> {
+  const { parsed, adapter, now } = ctx;
   const taskId = parsed.positionals[0];
   if (!taskId) {
     return fail('FAIL undo requires a task id', 2);

@@ -1,10 +1,9 @@
 // digestCmd: render or deliver the relevancy-grouped digest of silent outcomes.
 
-import { HermesCliAdapter } from '../../hermes/adapter';
 import { composeDigest, extractOutcomes, type DigestCadence } from '../digest';
 import type { CommandResult } from '../output';
 import { fail, ok } from '../output';
-import { type ParsedArgs, type RunOpsctlOptions, stringFlag } from '../shared';
+import { type CommandContext, stringFlag } from '../shared';
 
 function parseCadence(value: string | undefined): { ok: true; value: DigestCadence } | { ok: false; error: CommandResult } {
   if (value === undefined) {
@@ -21,7 +20,8 @@ function parseCadence(value: string | undefined): { ok: true; value: DigestCaden
 // configured notify_target (PRD §7.6). Brief discipline: when there is nothing to report
 // the digest is `[SILENT]` and nothing is sent. A non-preview send with no notify_target
 // configured fails clearly rather than silently dropping the digest.
-export async function digestCmd(parsed: ParsedArgs, adapter: HermesCliAdapter, options: RunOpsctlOptions): Promise<CommandResult> {
+export async function digestCmd(ctx: CommandContext): Promise<CommandResult> {
+  const { parsed, adapter, options } = ctx;
   const cadence = parseCadence(stringFlag(parsed, 'cadence'));
   if (!cadence.ok) {
     return cadence.error;

@@ -1,11 +1,10 @@
 // lifecycle command group: execute, dismiss, mark-reviewed.
 
-import { HermesCliAdapter } from '../../hermes/adapter';
 import { parseActionItemFromTask } from '../../hermes/taskBody';
 import type { ActionItem } from '../../schemas/actionItem';
 import type { CommandResult } from '../output';
 import { fail, json, ok } from '../output';
-import { normaliseTaskStatus, type ParsedArgs, stringFlag, validateTaskIdArgument } from '../shared';
+import { normaliseTaskStatus, type CommandContext, stringFlag, validateTaskIdArgument } from '../shared';
 
 // ---------------------------------------------------------------------------
 // Private builders
@@ -51,7 +50,8 @@ function dismissResult(taskId: string, status: string, action: string, actionIte
 // execute
 // ---------------------------------------------------------------------------
 
-export async function executeCard(parsed: ParsedArgs, adapter: HermesCliAdapter, now: () => Date): Promise<CommandResult> {
+export async function executeCard(ctx: CommandContext): Promise<CommandResult> {
+  const { parsed, adapter, now } = ctx;
   const taskId = parsed.positionals[0];
   if (!taskId) {
     return fail('FAIL execute requires a task id', 2);
@@ -121,7 +121,8 @@ export async function executeCard(parsed: ParsedArgs, adapter: HermesCliAdapter,
 // dismiss
 // ---------------------------------------------------------------------------
 
-export async function dismissCard(parsed: ParsedArgs, adapter: HermesCliAdapter, now: () => Date): Promise<CommandResult> {
+export async function dismissCard(ctx: CommandContext): Promise<CommandResult> {
+  const { parsed, adapter, now } = ctx;
   const taskId = parsed.positionals[0];
   if (!taskId) {
     return fail('FAIL dismiss requires a task id', 2);
@@ -161,7 +162,8 @@ export async function dismissCard(parsed: ParsedArgs, adapter: HermesCliAdapter,
 // has already executed (its outcome stands); marking it reviewed simply acknowledges it and
 // archives it out of the review log. It writes a `keryx:reviewed` marker comment, then
 // archives. Unlike `dismiss`, which only acts on blocked/todo cards, this acts on `done`.
-export async function markReviewedCard(parsed: ParsedArgs, adapter: HermesCliAdapter, now: () => Date): Promise<CommandResult> {
+export async function markReviewedCard(ctx: CommandContext): Promise<CommandResult> {
+  const { parsed, adapter, now } = ctx;
   const taskId = parsed.positionals[0];
   if (!taskId) {
     return fail('FAIL mark-reviewed requires a task id', 2);

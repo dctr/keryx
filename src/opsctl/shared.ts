@@ -8,6 +8,7 @@ import { isPlainObject, firstString } from '../util/object';
 import { cronJobCandidates, inferCronEnabled } from '../hermes/cronNormalise';
 import { parseActionItemFromTask } from '../hermes/taskBody';
 import type { HermesRunner, KanbanTask } from '../hermes/types';
+import type { HermesCliAdapter } from '../hermes/adapter';
 import type { KeryxConfig } from '../config';
 import type { CronJobSummary } from './output';
 
@@ -32,6 +33,20 @@ export interface ParsedArgs {
   command: string;
   positionals: string[];
   flags: Map<string, string | boolean>;
+}
+
+// ---------------------------------------------------------------------------
+// CommandContext — built once in runOpsctl and passed to every handler.
+// Handlers destructure only what they need. `now` is always resolved so
+// handlers never repeat `options.now ?? (() => new Date())`.
+// ---------------------------------------------------------------------------
+
+export interface CommandContext {
+  parsed: ParsedArgs;
+  adapter: HermesCliAdapter;
+  config: KeryxConfig;
+  now: () => Date;
+  options: RunOpsctlOptions;
 }
 
 // ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@
 import { type KeryxConfig, loadConfig } from '../config';
 import { HermesCliAdapter } from '../hermes/adapter';
 import { type CommandResult, fail, ok } from './output';
-import { type ParsedArgs, type RunOpsctlOptions } from './shared';
+import { type CommandContext, type ParsedArgs, type RunOpsctlOptions } from './shared';
 
 // Re-export the public interface types and buildOutcome so existing importers
 // (server/app.ts, tests/unit/opsctl-auto-execute.test.ts) do not break.
@@ -121,12 +121,14 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
     const parsed = parseArgs(argv);
     const config = options.config ?? loadConfig({ env: options.env, cwd: options.cwd, configPath: options.configPath });
     const adapter = new HermesCliAdapter(config, options.hermesRunner);
+    const now = options.now ?? (() => new Date());
+    const ctx: CommandContext = { parsed, adapter, config, now, options };
 
     switch (parsed.command) {
       case 'schema':
         return schemaCommand(parsed.positionals[0]);
       case 'template-card':
-        return templateCard(parsed, options.now ?? (() => new Date()));
+        return templateCard(ctx);
       case 'validate-card':
         return validateCard(parsed.positionals[0]);
       case 'validate-decision':
@@ -142,35 +144,35 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
       case 'validate-dismissal':
         return validateDismissalCommand(parsed.positionals[0]);
       case 'create-card':
-        return await createCard(parsed.positionals[0], adapter, options);
+        return await createCard(ctx);
       case 'auto-execute':
-        return await autoExecute(parsed.positionals[0], adapter, options);
+        return await autoExecute(ctx);
       case 'list':
-        return listCards(parsed, adapter);
+        return listCards(ctx);
       case 'show':
-        return showCard(parsed.positionals[0], adapter);
+        return showCard(ctx);
       case 'cron-status':
-        return cronStatus(adapter);
+        return cronStatus(ctx);
       case 'delivery-targets':
-        return deliveryTargets(parsed, adapter);
+        return deliveryTargets(ctx);
       case 'execute':
-        return executeCard(parsed, adapter, options.now ?? (() => new Date()));
+        return executeCard(ctx);
       case 'dismiss':
-        return dismissCard(parsed, adapter, options.now ?? (() => new Date()));
+        return dismissCard(ctx);
       case 'mark-reviewed':
-        return markReviewedCard(parsed, adapter, options.now ?? (() => new Date()));
+        return markReviewedCard(ctx);
       case 'digest':
-        return digestCmd(parsed, adapter, options);
+        return digestCmd(ctx);
       case 'default-resolve':
-        return defaultResolveCmd(parsed, adapter, options.now ?? (() => new Date()));
+        return defaultResolveCmd(ctx);
       case 'metrics':
-        return metricsCmd(parsed, adapter, options.now ?? (() => new Date()));
+        return metricsCmd(ctx);
       case 'regret':
-        return regretCmd(parsed, adapter, options.now ?? (() => new Date()));
+        return regretCmd(ctx);
       case 'undo':
-        return await undoCard(parsed, adapter, options);
+        return await undoCard(ctx);
       case 'policy':
-        return await policyCommand(parsed, adapter, options, options.now ?? (() => new Date()));
+        return await policyCommand(ctx);
       case 'doctor':
         return doctor(config, adapter, { cwd: options.cwd ?? process.cwd(), env: options.env ?? process.env });
       default:

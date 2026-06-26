@@ -1,10 +1,9 @@
 // metricsCmd: attention-economics metrics derived from the Kanban audit trail.
 
-import { HermesCliAdapter } from '../../hermes/adapter';
 import { computeMetrics, formatMetrics, type MetricsWindow } from '../../policy/metrics';
 import type { CommandResult } from '../output';
 import { fail, json, ok } from '../output';
-import { type ParsedArgs, stringFlag } from '../shared';
+import { type CommandContext, stringFlag } from '../shared';
 
 // Parses a relative duration suffix (s/m/h/d/w) into a metrics window anchored at `now`.
 // An empty range means all-time (unbounded). Rejects anything that is not <integer><unit>.
@@ -40,7 +39,8 @@ function parseMetricsWindow(
 // No second store: every figure derives from task status + the validated machine comments
 // Keryx already writes. `--window <range>` (e.g. 7d, 24h, 2w) scopes to comments newer than
 // now - range; `--json` emits the full KeryxMetrics object for the UI/automation.
-export async function metricsCmd(parsed: ParsedArgs, adapter: HermesCliAdapter, now: () => Date): Promise<CommandResult> {
+export async function metricsCmd(ctx: CommandContext): Promise<CommandResult> {
+  const { parsed, adapter, now } = ctx;
   const windowResult = parseMetricsWindow(stringFlag(parsed, 'window'), now);
   if (!windowResult.ok) {
     return windowResult.error;

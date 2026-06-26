@@ -10,18 +10,14 @@ import type { Policy, PolicyRule } from '../../schemas/policy';
 import { validatePolicy } from '../../schemas/policy';
 import type { CommandResult } from '../output';
 import { fail, formatValidationErrors, json, ok } from '../output';
-import { collectorSource, parseJsonFile, type ParsedArgs, type RunOpsctlOptions, stringFlag } from '../shared';
+import { collectorSource, parseJsonFile, type CommandContext, type ParsedArgs, type RunOpsctlOptions, stringFlag } from '../shared';
 
 // ---------------------------------------------------------------------------
 // policyCommand dispatcher
 // ---------------------------------------------------------------------------
 
-export async function policyCommand(
-  parsed: ParsedArgs,
-  adapter: HermesCliAdapter,
-  options: RunOpsctlOptions,
-  now: () => Date,
-): Promise<CommandResult> {
+export async function policyCommand(ctx: CommandContext): Promise<CommandResult> {
+  const { parsed, adapter, options, now } = ctx;
   const subcommand = parsed.positionals[0];
   switch (subcommand) {
     case 'show':
