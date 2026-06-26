@@ -11,15 +11,15 @@ interface ApiTask {
 }
 
 interface ActionItem {
-  schema: 'keryx.action_item.v1';
+  schema: 'keryx.action_item.v2';
   source: string;
   collector: string;
+  class: string;
   external_id: string;
   idempotency_key: string;
   origin_descriptor: string;
   title: string;
   summary: string;
-  autonomy: 'auto' | 'minimal' | 'research' | 'complex';
   urgency: 'low' | 'normal' | 'soon' | 'urgent';
   deadline: string | null;
   risk: string | null;
@@ -30,6 +30,9 @@ interface ActionItem {
     requires_input: boolean;
     input_hint: string | null;
     delivery: string | null;
+    reversibility: 'read_only' | 'reversible' | 'compensable' | 'irreversible';
+    blast_radius: 'self' | 'external';
+    undo_prompt?: string | null;
     execution_prompt: string;
   }>;
   ui?: { primary_option_id?: string; display_group?: string };
@@ -50,20 +53,20 @@ test('renders the action inbox and sends execute/dismiss requests to the API', a
   await expect(page.getByTestId('source-status-strip')).toContainText('Events');
   await expect(page.getByTestId('source-status-strip')).toContainText('FAILED');
 
-  for (const viewName of ['Inbox', 'Running', 'Completed', 'Dismissed']) {
+  for (const viewName of ['Needs you', 'Running', 'Review log', 'Dismissed']) {
     await expect(page.getByRole('button', { name: new RegExp(viewName) })).toBeVisible();
   }
 
   await page.getByRole('button', { name: /Running/ }).click();
   await expect(page.getByRole('heading', { name: 'Plan venue options for team planning session' })).toBeVisible();
 
-  await page.getByRole('button', { name: /Completed/ }).click();
+  await page.getByRole('button', { name: /Review log/ }).click();
   await expect(page.getByRole('heading', { name: 'Renew passport reminder' })).toBeVisible();
 
   await page.getByRole('button', { name: /Dismissed/ }).click();
   await expect(page.getByRole('heading', { name: 'Old workshop listing' })).toBeVisible();
 
-  await page.getByRole('button', { name: /Inbox/ }).click();
+  await page.getByRole('button', { name: /Needs you/ }).click();
   const emailCard = page.getByTestId('task-card-t_email');
   await expect(emailCard.getByRole('heading', { name: 'Support request: account access needs review' })).toBeVisible();
   await expect(emailCard.getByText('Support Desk — Account access request')).toBeVisible();
@@ -84,11 +87,6 @@ test('renders the action inbox and sends execute/dismiss requests to the API', a
   await expect(page.getByRole('heading', { name: 'Workshop booking opportunity' })).toBeHidden();
 
   await page.getByLabel('Source', { exact: true }).selectOption('all');
-  await page.getByLabel('Autonomy', { exact: true }).selectOption('minimal');
-  await expect(page.getByRole('heading', { name: 'Workshop booking opportunity' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Support request: account access needs review' })).toBeHidden();
-
-  await page.getByLabel('Autonomy', { exact: true }).selectOption('all');
   await page.getByLabel('Feedback for Support request: account access needs review').fill('Please be brief.');
   await page.getByRole('button', { name: 'Translate + forward to support contact + archive email' }).click();
 
@@ -101,7 +99,7 @@ test('renders the action inbox and sends execute/dismiss requests to the API', a
   await expect(page.getByRole('heading', { name: 'Support request: account access needs review' })).toBeVisible();
   await expect(page.getByTestId('task-card-t_email').getByText('Queued')).toBeVisible();
 
-  await page.getByRole('button', { name: /Inbox/ }).click();
+  await page.getByRole('button', { name: /Needs you/ }).click();
   const workshopCard = page.getByTestId('task-card-t_workshop');
   const workshopAction = workshopCard.getByRole('button', { name: 'Start booking in GUI browser' });
   const workshopFeedback = page.getByLabel('Feedback for Workshop booking opportunity');
@@ -124,10 +122,58 @@ test('renders the action inbox and sends execute/dismiss requests to the API', a
   await expect.poll(() => api.taskFetches, { timeout: 2_000 }).toBeGreaterThan(1);
 });
 
+test('inspects policy + metrics panels and records escalation regret', async ({ page }) => {
+  const api = await mockKeryxApi(page);
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Keryx' })).toBeVisible();
+
+  // Policy panel: choose a collector, load its rules, and propose a revocation.
+  const policyPanel = page.getByTestId('policy-panel');
+  await policyPanel.getByLabel('Policy collector').selectOption('keryx-email');
+  await policyPanel.getByRole('button', { name: 'Load policy' }).click();
+
+  const rule = page.getByTestId('policy-rule-r-001');
+  await expect(rule).toContainText('email:newsletter-unsubscribe');
+  await expect(rule).toContainText('Active');
+  await expect(rule).toContainText('trusted');
+
+  await page.getByTestId('revoke-rule-r-001').click();
+  expect(api.revokeRequests).toEqual([{ collector: 'keryx-email', body: { rule_id: 'r-001' } }]);
+
+  // Metrics panel: load and render the derived figures.
+  const metricsPanel = page.getByTestId('metrics-panel');
+  await metricsPanel.getByRole('button', { name: 'Load metrics' }).click();
+  await expect(page.getByTestId('metric-tasks')).toHaveText('12');
+  await expect(page.getByTestId('metric-silent')).toHaveText('4');
+  await expect(page.getByTestId('metric-override-rate')).toHaveText('14%');
+  await expect(page.getByTestId('metric-shadow-agreement')).toHaveText('80%');
+  await expect(page.getByTestId('metric-silent-failures')).toHaveText('1');
+
+  // Review-log regret control on a done card.
+  await page.getByRole('button', { name: /Review log/ }).click();
+  await page.getByTestId('regret-asked-t_done').click();
+  expect(api.regretRequests).toEqual([{ taskId: 't_done', body: { kind: 'should_have_asked' } }]);
+
+  // Review-log honest undo: the reversible done card offers an Undo control wired to /undo.
+  await expect(page.getByTestId('undo-t_done')).toHaveText('Undo');
+  await page.getByTestId('undo-t_done').click();
+  expect(api.undoRequests).toEqual(['t_done']);
+
+  // Archive (mark-reviewed): acknowledges and removes the card from the review log.
+  await page.getByTestId('archive-t_done').click();
+  expect(api.markReviewedRequests).toEqual(['t_done']);
+  await expect(page.getByRole('heading', { name: 'Renew passport reminder' })).toBeHidden();
+});
+
 async function mockKeryxApi(page: Page) {
   let tasks = fixtureTasks();
   const executeRequests: Array<{ taskId: string; body: unknown }> = [];
   const dismissRequests: Array<{ taskId: string; body: unknown }> = [];
+  const regretRequests: Array<{ taskId: string; body: unknown }> = [];
+  const revokeRequests: Array<{ collector: string; body: unknown }> = [];
+  const undoRequests: string[] = [];
+  const markReviewedRequests: string[] = [];
   let taskFetches = 0;
 
   await page.route('**/api/tasks', async (route) => {
@@ -202,9 +248,109 @@ async function mockKeryxApi(page: Page) {
     });
   });
 
+  await page.route('**/api/tasks/*/regret', async (route) => {
+    const taskId = route.request().url().match(/\/api\/tasks\/([^/]+)\/regret$/)?.[1] ?? 'unknown';
+    const body = route.request().postDataJSON() as unknown;
+    regretRequests.push({ taskId, body });
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, task_id: taskId, kind: (body as { kind?: string }).kind ?? 'should_have_acted', action: 'recorded' }),
+    });
+  });
+
+  await page.route('**/api/tasks/*/undo', async (route) => {
+    const taskId = route.request().url().match(/\/api\/tasks\/([^/]+)\/undo$/)?.[1] ?? 'unknown';
+    undoRequests.push(taskId);
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, task_id: taskId, reversibility: 'reversible', undo_kind: 'reverse', status: 'ready' }),
+    });
+  });
+
+  await page.route('**/api/tasks/*/mark-reviewed', async (route) => {
+    const taskId = route.request().url().match(/\/api\/tasks\/([^/]+)\/mark-reviewed$/)?.[1] ?? 'unknown';
+    markReviewedRequests.push(taskId);
+    tasks = tasks.map((task) => (task.id === taskId ? { ...task, status: 'archived' } : task));
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, task_id: taskId, status: 'archived', action: 'reviewed' }),
+    });
+  });
+
+  // Register the more specific revoke route before the generic policy GET so Playwright
+  // (which matches most-recently-registered first) routes /revoke to its own handler.
+  await page.route('**/api/policy/*', async (route) => {
+    const collector = route.request().url().match(/\/api\/policy\/([^/]+)$/)?.[1] ?? 'unknown';
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        collector,
+        exists: true,
+        version: 3,
+        rules: [
+          {
+            id: 'r-001',
+            class: 'email:newsletter-unsubscribe',
+            gate: { max_blast_radius: 'self', min_reversibility: 'reversible', min_confidence: 'trusted' },
+            disposition: 'silent',
+            result_delivery: 'digest',
+            state: 'active',
+            approved_by: 'User',
+            approved_at: '2026-06-25T09:00:00.000Z',
+            source_card_id: 'keryx-123',
+            scope_note: 'auto-handle one-click unsubscribes from known senders',
+          },
+        ],
+        track_record: {
+          'email:newsletter-unsubscribe': { approved: 5, overridden: 0, dismissed: 1, regret: 0, band: 'trusted' },
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/policy/*/revoke', async (route) => {
+    const collector = route.request().url().match(/\/api\/policy\/([^/]+)\/revoke$/)?.[1] ?? 'unknown';
+    const body = route.request().postDataJSON() as unknown;
+    revokeRequests.push({ collector, body });
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, task_id: 't_revoke', status: 'blocked', action: 'created' }),
+    });
+  });
+
+  await page.route('**/api/metrics**', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        window: { from: null, to: null },
+        counts: {
+          tasks: 12,
+          silentExecutions: 4,
+          shadowWouldHave: 2,
+          humanApprovals: 6,
+          overrides: 1,
+          dismissals: 2,
+          regrets: 1,
+          outcomes: 4,
+          interrupts: 0,
+        },
+        overrideRate: 0.14,
+        shadowAgreementRate: 0.8,
+        autonomousSafeCompletionRate: 0.75,
+        silentFailureCount: 1,
+        recoveryCost: 1,
+        escalationRegret: { should_have_acted: 0, should_have_asked: 1 },
+      }),
+    });
+  });
+
   return {
     executeRequests,
     dismissRequests,
+    regretRequests,
+    revokeRequests,
+    undoRequests,
+    markReviewedRequests,
     get taskFetches() {
       return taskFetches;
     },
@@ -216,10 +362,10 @@ function fixtureTasks(): ApiTask[] {
     task('t_email', 'blocked', {
       source: 'email',
       collector: 'keryx-email',
+      class: 'email:support-request',
       title: 'Support request: account access needs review',
       summary: 'Customer reports that account access is failing after a recent change.',
       origin_descriptor: 'Support Desk — Account access request',
-      autonomy: 'auto',
       urgency: 'normal',
       risk: 'Support request may stall if ignored.',
       options: [
@@ -229,6 +375,9 @@ function fixtureTasks(): ApiTask[] {
           requires_input: false,
           input_hint: null,
           delivery: null,
+          reversibility: 'reversible',
+          blast_radius: 'external',
+          undo_prompt: 'Restore the archived email and retract the forward.',
           execution_prompt: "Translate the support request into the target language, forward it to the configured support contact, then archive the source email.",
         },
       ],
@@ -237,10 +386,10 @@ function fixtureTasks(): ApiTask[] {
     task('t_workshop', 'blocked', {
       source: 'events',
       collector: 'keryx-events',
+      class: 'events:workshop-booking',
       title: 'Workshop booking opportunity',
       summary: 'A community workshop appears to have dates available.',
       origin_descriptor: 'Events feed — Workshop schedule announcement',
-      autonomy: 'minimal',
       urgency: 'soon',
       risk: 'Tickets may sell out.',
       options: [
@@ -250,6 +399,9 @@ function fixtureTasks(): ApiTask[] {
           requires_input: true,
           input_hint: 'Type the date you want to book for.',
           delivery: null,
+          reversibility: 'irreversible',
+          blast_radius: 'external',
+          undo_prompt: null,
           execution_prompt: 'Open the booking flow in the visible GUI browser and stop at payment/private input.',
         },
       ],
@@ -258,10 +410,10 @@ function fixtureTasks(): ApiTask[] {
     task('t_calendar', 'ready', {
       source: 'calendar',
       collector: 'keryx-calendar',
+      class: 'calendar:venue-planning',
       title: 'Plan venue options for team planning session',
       summary: 'Calendar event has time but no venue logistics.',
       origin_descriptor: 'Mon 1 Jun, 6:30 pm — Team planning session',
-      autonomy: 'research',
       urgency: 'soon',
       deadline: '2026-06-01T18:30:00+10:00',
       risk: 'Leaving it unplanned creates avoidable friction.',
@@ -269,20 +421,20 @@ function fixtureTasks(): ApiTask[] {
     task('t_done', 'done', {
       source: 'notion',
       collector: 'keryx-notion',
+      class: 'notion:reminder',
       title: 'Renew passport reminder',
       summary: 'Passport renewal reminder has been handled.',
       origin_descriptor: 'Notion — admin list',
-      autonomy: 'auto',
       urgency: 'low',
       risk: null,
     }),
     task('t_archived', 'archived', {
       source: 'events',
       collector: 'keryx-events',
+      class: 'events:listing',
       title: 'Old workshop listing',
       summary: 'Archived old event listing.',
       origin_descriptor: 'Events feed — old listing',
-      autonomy: 'auto',
       urgency: 'low',
       risk: null,
     }),
@@ -292,15 +444,15 @@ function fixtureTasks(): ApiTask[] {
 function task(id: string, status: string, overrides: Partial<ActionItem>): ApiTask {
   const source = overrides.source ?? 'email';
   const item: ActionItem = {
-    schema: 'keryx.action_item.v1',
+    schema: 'keryx.action_item.v2',
     source,
     collector: overrides.collector ?? `keryx-${source}`,
+    class: overrides.class ?? `${source}:example`,
     external_id: `${source}:${id}`,
     idempotency_key: `keryx:${source}:${id}`,
     origin_descriptor: overrides.origin_descriptor ?? `${source} origin`,
     title: overrides.title ?? `${source} task`,
     summary: overrides.summary ?? `${source} summary`,
-    autonomy: overrides.autonomy ?? 'auto',
     urgency: overrides.urgency ?? 'normal',
     deadline: overrides.deadline ?? null,
     risk: overrides.risk ?? null,
@@ -314,6 +466,9 @@ function task(id: string, status: string, overrides: Partial<ActionItem>): ApiTa
           requires_input: false,
           input_hint: null,
           delivery: null,
+          reversibility: 'reversible',
+          blast_radius: 'self',
+          undo_prompt: 'Reverse the approved action.',
           execution_prompt: 'Execute the approved action.',
         },
       ],

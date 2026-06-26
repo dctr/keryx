@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://keryx.local/schemas/outcome.v1.schema.json",
+  "title": "Keryx outcome v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "executed_option_id",
+    "result_summary",
+    "result_delivery",
+    "digest_category",
+    "changed_state",
+    "delivered_via",
+    "completed_at"
+  ],
+  "properties": {
+    "schema": { "const": "keryx.outcome.v1" },
+    "executed_option_id": { "type": "string", "minLength": 1 },
+    "result_summary": { "type": "string", "minLength": 1 },
+    "result_delivery": { "enum": ["digest", "push", "log_only"] },
+    "digest_category": {
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
+      ]
+    },
+    "digest_cadence": { "enum": ["daily", "weekly"] },
+    "changed_state": {
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
+      ]
+    },
+    "delivered_via": {
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
+      ]
+    },
+    "digested": { "type": "boolean" },
+    "completed_at": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$" }
+  }
+}

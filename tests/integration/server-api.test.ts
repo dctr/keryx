@@ -1,39 +1,17 @@
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { loadConfig } from '../../src/config';
 import { createFakeHermes } from '../../src/hermes/fakeHermes';
 import type { HermesRunner, KanbanTask } from '../../src/hermes/types';
 import { createServer } from '../../src/server/app';
+import { sampleActionItem } from '../helpers/sampleActionItem';
 import type { ActionItem } from '../../src/schemas/actionItem';
 
-const actionItem: ActionItem = {
-  schema: 'keryx.action_item.v1',
-  source: 'email',
-  collector: 'keryx-email',
-  external_id: 'support-inbox:INBOX:35680',
-  idempotency_key: 'keryx:email:support-inbox:INBOX:35680',
-  origin_descriptor: 'Support Desk — Account access request',
-  title: 'Support request: account access needs review',
-  summary: 'Customer reports that account access is failing after a recent change.',
-  autonomy: 'auto',
-  urgency: 'normal',
-  deadline: null,
-  risk: 'Support request may stall if ignored.',
-  source_refs: [{ type: 'email', account: 'support-inbox', folder: 'INBOX', uid: '35680' }],
-  options: [
-    {
-      id: 'translate_forward_contact_archive',
-      label: 'Translate + forward to support contact + archive email',
-      requires_input: false,
-      input_hint: null,
-      delivery: null,
-      execution_prompt:
-        "Translate the support request into the target language, forward it to the configured support contact, then archive the source email.",
-    },
-  ],
-  ui: { primary_option_id: 'translate_forward_contact_archive', display_group: 'Needs approval' },
-  created_at: '2026-05-31T00:00:00+10:00',
-};
+const actionItem: ActionItem = sampleActionItem();
 
 describe('server API with fake Hermes', () => {
   it('returns parsed task cards and malformed-card errors without mutating Kanban', async () => {
@@ -261,7 +239,225 @@ describe('server API with fake Hermes', () => {
       await server.close();
     }
   });
+
+  it('records an escalation-regret signal through opsctl', async () => {
+    const fakeHermes = createFakeHermes({ tasks: [task({ id: 't_silent', status: 'done', body: JSON.stringify(actionItem) })] });
+    const server = createServer({
+      config: loadConfig({ env: {}, configPath: null }),
+      hermesRunner: fakeHermes.runner,
+      now: () => new Date('2026-05-31T12:34:56.000Z'),
+    });
+
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/api/tasks/t_silent/regret',
+        payload: { kind: 'should_have_asked', note: 'Too aggressive.' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ ok: true, task_id: 't_silent', kind: 'should_have_asked' });
+      const commentRequest = fakeHermes.requests.find((request) => request.args[3] === 'comment');
+      expect(commentRequest).toBeDefined();
+      expect(JSON.parse(commentRequest!.args[5])).toMatchObject({
+        schema: 'keryx.regret.v1',
+        kind: 'should_have_asked',
+        note: 'Too aggressive.',
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('reverses a reversible silent card through opsctl undo using the fake Hermes adapter', async () => {
+    const reversibleCard = sampleActionItem({
+      class: 'email:newsletter-unsubscribe',
+      options: [
+        {
+          id: 'unsubscribe',
+          label: 'Unsubscribe',
+          requires_input: false,
+          input_hint: null,
+          delivery: null,
+          reversibility: 'reversible',
+          blast_radius: 'self',
+          undo_prompt: 'Resubscribe to the newsletter to restore the prior state.',
+          execution_prompt: 'Unsubscribe from the newsletter.',
+        },
+      ],
+      ui: { primary_option_id: 'unsubscribe', display_group: 'Monitored' },
+    });
+    const done = task({
+      id: 't_silent',
+      status: 'done',
+      body: JSON.stringify(reversibleCard),
+      comments: [
+        {
+          body: JSON.stringify({
+            schema: 'keryx.outcome.v1',
+            executed_option_id: 'unsubscribe',
+            result_summary: 'Unsubscribed.',
+            result_delivery: 'digest',
+            digest_category: 'Done for you',
+            changed_state: 'subscription removed',
+            delivered_via: null,
+            completed_at: '2026-05-31T12:00:00.000Z',
+          }),
+        },
+      ],
+    });
+    const fakeHermes = createFakeHermes({ tasks: [done] });
+    const server = createServer({
+      config: loadConfig({ env: {}, configPath: null }),
+      hermesRunner: fakeHermes.runner,
+      now: () => new Date('2026-05-31T12:34:56.000Z'),
+    });
+
+    try {
+      const response = await server.inject({ method: 'POST', url: '/api/tasks/t_silent/undo' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ ok: true, undo_kind: 'reverse', status: 'ready' });
+      // A reversal card is created and promoted to ready, authorized by an execution decision.
+      expect(fakeHermes.requests.map((request) => request.args[3])).toEqual(['show', 'create', 'comment', 'promote']);
+      const createRequest = fakeHermes.requests.find((request) => request.args[3] === 'create');
+      const body = JSON.parse(createRequest!.args[6]);
+      expect(body).toMatchObject({ schema: 'keryx.action_item.v2', class: 'keryx:undo' });
+      expect(body.idempotency_key).toBe('keryx:undo:t_silent:unsubscribe');
+      const commentRequest = fakeHermes.requests.find((request) => request.args[3] === 'comment');
+      expect(JSON.parse(commentRequest!.args[5])).toMatchObject({
+        schema: 'keryx.execution_decision.v1',
+        approved_via: 'keryx-undo',
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('marks a done review-log card reviewed and archives it through opsctl', async () => {
+    const done = task({ id: 't_done', status: 'done', body: JSON.stringify(actionItem) });
+    const fakeHermes = createFakeHermes({ tasks: [done] });
+    const server = createServer({
+      config: loadConfig({ env: {}, configPath: null }),
+      hermesRunner: fakeHermes.runner,
+      now: () => new Date('2026-05-31T12:34:56.000Z'),
+    });
+
+    try {
+      const response = await server.inject({ method: 'POST', url: '/api/tasks/t_done/mark-reviewed' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ ok: true, status: 'archived', action: 'reviewed' });
+      expect(fakeHermes.requests.map((request) => request.args[3])).toEqual(['show', 'comment', 'archive']);
+      const commentRequest = fakeHermes.requests.find((request) => request.args[3] === 'comment');
+      expect(JSON.parse(commentRequest!.args[5])).toMatchObject({ marker: 'keryx:reviewed' });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('serves a collector policy and derives bands from the audit trail', async () => {
+    const home = homeWithPolicy();
+    try {
+      const fakeHermes = createFakeHermes({ tasks: [] });
+      const server = createServer({
+        config: loadConfig({ env: {}, configPath: null, overrides: { hermesHome: home } }),
+        hermesRunner: fakeHermes.runner,
+      });
+
+      try {
+        const response = await server.inject({ method: 'GET', url: '/api/policy/keryx-email' });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['cache-control']).toBe('no-store');
+        const payload = response.json() as { collector: string; exists: boolean; rules: Array<{ id: string; state: string }> };
+        expect(payload.collector).toBe('keryx-email');
+        expect(payload.exists).toBe(true);
+        expect(payload.rules.map((rule) => rule.id)).toEqual(['r-001']);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('proposes a policy revocation card through opsctl', async () => {
+    const home = homeWithPolicy();
+    try {
+      const fakeHermes = createFakeHermes({ tasks: [] });
+      const server = createServer({
+        config: loadConfig({ env: {}, configPath: null, overrides: { hermesHome: home } }),
+        hermesRunner: fakeHermes.runner,
+        now: () => new Date('2026-05-31T12:34:56.000Z'),
+      });
+
+      try {
+        const response = await server.inject({ method: 'POST', url: '/api/policy/keryx-email/revoke', payload: { rule_id: 'r-001' } });
+
+        expect(response.statusCode).toBe(200);
+        const createRequest = fakeHermes.requests.find((request) => request.args[3] === 'create');
+        expect(createRequest).toBeDefined();
+        const body = JSON.parse(createRequest!.args[6]);
+        expect(body).toMatchObject({ schema: 'keryx.action_item.v2', class: 'policy:rule-revocation' });
+        expect(body.idempotency_key).toBe('keryx:policy-revocation:keryx-email:r-001');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('serves attention-economics metrics derived from Kanban tasks', async () => {
+    const fakeHermes = createFakeHermes({
+      tasks: [task({ id: 't_metric', status: 'blocked', body: JSON.stringify(actionItem) })],
+    });
+    const server = createServer({ config: loadConfig({ env: {}, configPath: null }), hermesRunner: fakeHermes.runner });
+
+    try {
+      const response = await server.inject({ method: 'GET', url: '/api/metrics' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe('no-store');
+      const payload = response.json() as { counts: { tasks: number } };
+      expect(payload.counts.tasks).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
 });
+
+const policyDocument = {
+  schema: 'keryx.policy.v1',
+  collector: 'keryx-email',
+  version: 2,
+  updated_at: '2026-06-25T09:00:00Z',
+  rules: [
+    {
+      id: 'r-001',
+      class: 'email:newsletter-unsubscribe',
+      gate: { max_blast_radius: 'self', min_reversibility: 'reversible', min_confidence: 'trusted' },
+      disposition: 'silent',
+      result_delivery: 'digest',
+      state: 'active',
+      approved_by: 'User',
+      approved_at: '2026-06-25T09:00:00Z',
+      source_card_id: 'keryx-123',
+      scope_note: 'auto-handle one-click unsubscribes from known senders',
+    },
+  ],
+  thresholds: { spend_requires_approval_always: true },
+  track_record: {},
+};
+
+function homeWithPolicy(): string {
+  const home = mkdtempSync(join(tmpdir(), 'keryx-server-policy-'));
+  const dir = join(home, 'skills', 'keryx-collector-email', 'references');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'policy.json'), JSON.stringify(policyDocument), 'utf8');
+  return home;
+}
 
 function task(overrides: Partial<KanbanTask>): KanbanTask {
   return {

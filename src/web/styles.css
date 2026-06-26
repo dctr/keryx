@@ -406,6 +406,144 @@ textarea {
   text-align: center;
 }
 
+.insight-panels {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 1.5rem;
+}
+
+.insight-panel {
+  border: 1px solid #243044;
+  border-radius: 1rem;
+  background: #0d1626;
+  padding: 1.1rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.insight-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.insight-header h2 {
+  margin: 0;
+}
+
+.insight-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+}
+
+.insight-controls label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.insight-error {
+  border: 1px solid #ff8b8b;
+  border-radius: 0.8rem;
+  margin: 0;
+  padding: 0.8rem;
+  background: #2a1414;
+}
+
+.rule-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.rule {
+  border: 1px solid #243044;
+  border-radius: 0.8rem;
+  padding: 0.8rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.rule-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rule-state {
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  border: 1px solid #334055;
+}
+
+.rule-state-active {
+  border-color: #6ee7a8;
+  color: #6ee7a8;
+}
+
+.rule-state-shadow {
+  border-color: #b08bff;
+  color: #b08bff;
+}
+
+.rule-note {
+  margin: 0;
+  color: #9fb0c8;
+  font-size: 0.9rem;
+}
+
+.rule-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.7rem;
+  margin: 0;
+}
+
+.metric {
+  border: 1px solid #243044;
+  border-radius: 0.8rem;
+  padding: 0.7rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.metric dt {
+  font-size: 0.8rem;
+  color: #9fb0c8;
+}
+
+.metric dd {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 800;
+}
+
+.review-log-actions .regret {
+  font-size: 0.85rem;
+}
+
+.review-log-actions .undo,
+.review-log-actions .archive {
+  font-size: 0.85rem;
+}
+
 @media (max-width: 760px) {
   .app-shell {
     width: min(100% - 1rem, 1180px);
@@ -423,6 +561,10 @@ textarea {
 
   .views {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .insight-panels {
+    grid-template-columns: 1fr;
   }
 
   .filters,

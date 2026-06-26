@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://keryx.local/schemas/policy-decision.v1.schema.json",
+  "title": "Keryx policy decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "selected_option_id",
+    "disposition",
+    "rule_id",
+    "reasons",
+    "approved_by",
+    "approved_via",
+    "approved_at"
+  ],
+  "properties": {
+    "schema": { "const": "keryx.policy_decision.v1" },
+    "selected_option_id": { "type": "string", "minLength": 1 },
+    "disposition": { "enum": ["silent", "review", "interrupt"] },
+    "rule_id": {
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
+      ]
+    },
+    "reasons": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "approved_by": { "enum": ["keryx-policy"] },
+    "approved_via": { "type": "string", "minLength": 1 },
+    "approved_at": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$" }
+  }
+}

@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 
 import type { KeryxConfig } from '../config';
 import type { ActionItem } from '../schemas/actionItem';
+import type { ExecutionDecision } from '../schemas/executionDecision';
+import type { PolicyDecision } from '../schemas/policyDecision';
 import type { DeliveryTarget, HermesRunRequest, HermesRunResult, HermesRunner, KanbanTask } from './types';
 
 export interface ListTaskOptions {
@@ -39,40 +41,93 @@ export class HermesCliAdapter {
     return parseKanbanTasks(await this.run(args));
   }
 
+  // Enriched listing for the batch/cron commands that read per-task comments (digest,
+  // metrics, track-record bands, default-resolve, interrupt dedupe, policy show). The live
+  // `hermes kanban list --json` does NOT embed comments — only `show --json` does — so we
+  // list once, then fetch each task with showTask() and merge its comments back on. The N+1
+  // calls are acceptable here: these are infrequent batch/cron paths, not hot request paths,
+  // and correctness (populated comments) matters more than a single round trip. listTasks()
+  // stays unchanged for callers (UI task list, doctor, list-cards) that never read comments.
+  async listTasksWithComments(options: ListTaskOptions = {}): Promise<KanbanTask[]> {
+    const tasks = await this.listTasks(options);
+    return Promise.all(
+      tasks.map(async (task) => {
+        const shown = await this.showTask(task.id);
+        return { ...task, comments: shown.comments ?? [] };
+      }),
+    );
+  }
+
   async showTask(taskId: string): Promise<KanbanTask> {
     return parseKanbanTask(await this.run(['kanban', '--board', this.config.board, 'show', taskId, '--json']));
   }
 
-  async createTaskFromActionItem(actionItem: ActionItem): Promise<unknown> {
+  async createTaskFromActionItem(actionItem: ActionItem, shadowDecision?: PolicyDecision): Promise<unknown> {
     // TODO(https://github.com/NousResearch/hermes-agent/issues/39609): replace this
     // create→block→assign workaround with atomic sticky-blocked creation once Hermes
     // `--initial-status blocked` no longer auto-promotes.
-    const created = parseJson(
-      await this.run([
-        'kanban',
-        '--board',
-        this.config.board,
-        'create',
-        actionItem.title,
-        '--body',
-        JSON.stringify(actionItem),
-        '--tenant',
-        actionItem.source,
-        '--idempotency-key',
-        actionItem.idempotency_key,
-        '--created-by',
-        actionItem.collector,
-        '--skill',
-        'keryx:keryx-worker',
-        '--json',
-      ]),
-    );
+    const created = parseJson(await this.run(this.createCardArgs(actionItem)));
     const taskId = extractCreatedTaskId(created);
     if (!createdTaskAlreadyBlocked(created)) {
       await this.blockTask(taskId, 'approval-required: Keryx candidate awaiting user decision');
     }
     await this.assignTask(taskId, this.config.defaultAssignee);
+    // Shadow mode (PRD §10.1): a shadow rule "would have" run this silently. Record the
+    // disposition function's reasoning on the still-blocked card so the user can judge
+    // stability before promoting shadow → active, without granting any autonomy now.
+    if (shadowDecision) {
+      await this.commentTask(taskId, JSON.stringify(shadowDecision));
+    }
     return created;
+  }
+
+  // Silent disposition path (PRD §7.4, §9): create the card, attach the validated
+  // synthetic policy-decision comment that authorizes silent execution, then promote
+  // it straight to `ready` so the worker is dispatched without a human approval step.
+  // The worker (skill) is what actually executes once dispatched.
+  async createReadyTaskFromActionItem(actionItem: ActionItem, policyDecision: PolicyDecision): Promise<unknown> {
+    const created = parseJson(await this.run(this.createCardArgs(actionItem)));
+    const taskId = extractCreatedTaskId(created);
+    await this.commentTask(taskId, JSON.stringify(policyDecision));
+    await this.promoteTask(taskId, 'approved by Keryx policy');
+    return created;
+  }
+
+  // Honest-undo path (PRD §7.4, D3): create a reversal/correction card authorized by the
+  // user's explicit undo click — a trusted review-path keryx.execution_decision.v1 — then
+  // promote it to `ready` so the worker runs the reversal/correction without a second
+  // approval step. Distinct from createReadyTaskFromActionItem (whose authority is a
+  // synthetic policy decision); here a human asked for the undo.
+  async createReadyTaskFromExecutionDecision(
+    actionItem: ActionItem,
+    executionDecision: ExecutionDecision,
+  ): Promise<unknown> {
+    const created = parseJson(await this.run(this.createCardArgs(actionItem)));
+    const taskId = extractCreatedTaskId(created);
+    await this.commentTask(taskId, JSON.stringify(executionDecision));
+    await this.promoteTask(taskId, 'approved by Keryx undo');
+    return created;
+  }
+
+  private createCardArgs(actionItem: ActionItem): string[] {
+    return [
+      'kanban',
+      '--board',
+      this.config.board,
+      'create',
+      actionItem.title,
+      '--body',
+      JSON.stringify(actionItem),
+      '--tenant',
+      actionItem.source,
+      '--idempotency-key',
+      actionItem.idempotency_key,
+      '--created-by',
+      actionItem.collector,
+      '--skill',
+      'keryx:keryx-worker',
+      '--json',
+    ];
   }
 
   async blockTask(taskId: string, reason: string): Promise<unknown> {
@@ -108,6 +163,14 @@ export class HermesCliAdapter {
     return parseDeliveryTargets(await this.run(args));
   }
 
+  // The single new state-changing privilege in v005 (PRD §7.5, §11.12): deliver an
+  // interrupt or digest message to a configured target. Mirrors the real `hermes send`
+  // CLI shape (`hermes send --to TARGET <message>`), kept exact so this cannot become a
+  // generic send passthrough (no --file/--subject/--quiet etc.).
+  async sendMessage(target: string, message: string): Promise<string> {
+    return this.run(['send', '--to', target, message]);
+  }
+
   // Returns the raw `hermes --version` stdout. Callers parse the semver with
   // parseHermesVersion(); the adapter does not interpret the output so that a
   // cosmetic format change degrades to a WARN rather than a hard failure.
@@ -137,7 +200,13 @@ export class HermesCliAdapter {
 }
 
 export function assertAllowedHermesArgs(args: readonly string[]): void {
-  if (isAllowedKanbanArgs(args) || isAllowedSendArgs(args) || isAllowedCronArgs(args) || isAllowedVersionArgs(args)) {
+  if (
+    isAllowedKanbanArgs(args) ||
+    isAllowedSendArgs(args) ||
+    isAllowedSendMessageArgs(args) ||
+    isAllowedCronArgs(args) ||
+    isAllowedVersionArgs(args)
+  ) {
     return;
   }
 
@@ -232,6 +301,19 @@ function isAllowedSendArgs(args: readonly string[]): boolean {
   );
 }
 
+// The narrow interrupt/digest delivery shape: `hermes send --to <target> <message>`.
+// Exact arity (4) and both target+message non-empty, with no trailing flags
+// (--file/--subject/--quiet/--json etc.) so this stays a single-purpose privilege.
+function isAllowedSendMessageArgs(args: readonly string[]): boolean {
+  return (
+    args.length === 4 &&
+    args[0] === 'send' &&
+    args[1] === '--to' &&
+    isNonEmptyString(args[2]) &&
+    isNonEmptyString(args[3])
+  );
+}
+
 function isAllowedCronArgs(args: readonly string[]): boolean {
   return args.length === 3 && args[0] === 'cron' && args[1] === 'list' && args[2] === '--all';
 }
@@ -266,7 +348,15 @@ export function parseKanbanTask(json: string): KanbanTask {
   if (!isPlainObject(parsed) || !isPlainObject(parsed.task)) {
     throw new Error('Hermes Kanban show JSON did not contain a task object');
   }
-  return normaliseKanbanTask(parsed.task);
+  const task = normaliseKanbanTask(parsed.task);
+  // The live `hermes kanban show --json` returns `comments` as a TOP-LEVEL sibling of
+  // `task`, not nested inside it. Merge the sibling on so comment-reading callers
+  // (digest/metrics/track-record/default-resolve/dedupe) actually see them. Fall back to
+  // a nested `task.comments` if a future envelope embeds them there instead.
+  if (Array.isArray(parsed.comments)) {
+    return { ...task, comments: parsed.comments as KanbanTask['comments'] };
+  }
+  return task;
 }
 
 export function parseDeliveryTargets(json: string): DeliveryTarget[] {

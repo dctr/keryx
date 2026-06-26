@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -6,37 +6,33 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { loadConfig } from '../../src/config';
 import { runOpsctl } from '../../src/opsctl/commands';
+import { sampleActionItem } from '../helpers/sampleActionItem';
+import { validatePolicyDecision } from '../../src/schemas/policyDecision';
 import type { ActionItem } from '../../src/schemas/actionItem';
-import type { HermesRunner } from '../../src/hermes/types';
+import type { HermesRunner, KanbanTask } from '../../src/hermes/types';
+import type { Policy } from '../../src/schemas/policy';
 
-const validActionItem: ActionItem = {
-  schema: 'keryx.action_item.v1',
-  source: 'email',
-  collector: 'keryx-email',
-  external_id: 'support-inbox:INBOX:35680',
-  idempotency_key: 'keryx:email:support-inbox:INBOX:35680',
-  origin_descriptor: 'Support Desk — Account access request',
-  title: 'Support request: account access needs review',
-  summary: 'Customer reports that account access is failing after a recent change.',
-  autonomy: 'auto',
-  urgency: 'normal',
-  deadline: null,
-  risk: 'Support request may stall if ignored.',
-  source_refs: [{ type: 'email', account: 'support-inbox', folder: 'INBOX', uid: '35680' }],
+const validActionItem: ActionItem = sampleActionItem();
+
+const readOnlyActionItem: ActionItem = sampleActionItem({
+  class: 'facebook:group-digest',
+  external_id: 'facebook:group:42',
+  idempotency_key: 'keryx:facebook:group:42',
   options: [
     {
-      id: 'translate_forward_contact_archive',
-      label: 'Translate + forward to support contact + archive email',
+      id: 'summarise_group',
+      label: 'Summarise new group posts',
       requires_input: false,
       input_hint: null,
       delivery: null,
-      execution_prompt:
-        'Translate the support request into the target language, forward it to the configured support contact, then archive the source email.',
+      reversibility: 'read_only',
+      blast_radius: 'self',
+      undo_prompt: null,
+      execution_prompt: 'Read the configured Facebook group and summarise new posts since the last run.',
     },
   ],
-  ui: { primary_option_id: 'translate_forward_contact_archive', display_group: 'Needs approval' },
-  created_at: '2026-05-31T00:00:00+10:00',
-};
+  ui: { primary_option_id: 'summarise_group', display_group: 'Monitored' },
+});
 
 describe('opsctl create-card', () => {
   it('validates an action-item and creates a sticky-blocked Kanban card before assigning a worker', async () => {
@@ -105,6 +101,61 @@ describe('opsctl create-card', () => {
     expect(result.exitCode).toBe(0);
     expect(runner.mock.calls.map(([request]) => request.args[3])).toEqual(['create', 'assign']);
     expect(runner.mock.calls.at(1)?.[0].args).toEqual(['kanban', '--board', 'keryx', 'assign', 't_existing', 'default']);
+  });
+
+  it('routes a read_only+self card to a silent ready card with a policy-decision comment', async () => {
+    const runner = vi.fn<HermesRunner>(async (request) => ({
+      stdout:
+        request.args[3] === 'create'
+          ? JSON.stringify({ id: 't_readonly', title: readOnlyActionItem.title, status: 'blocked' })
+          : request.args[3] === 'promote'
+            ? JSON.stringify({ id: 't_readonly', status: 'ready' })
+            : '',
+      stderr: '',
+      exitCode: 0,
+    }));
+    const filePath = writeTempJson(readOnlyActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: loadConfig({ env: {}, configPath: null, overrides: { defaultAssignee: 'default' } }),
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe('');
+
+    const verbs = runner.mock.calls.map(([request]) => request.args[3]);
+    expect(verbs).toEqual(['create', 'comment', 'promote']);
+
+    const commentArgs = runner.mock.calls[1][0].args;
+    expect(commentArgs.slice(0, 5)).toEqual(['kanban', '--board', 'keryx', 'comment', 't_readonly']);
+    const decision = JSON.parse(commentArgs[5]) as unknown;
+    const validation = validatePolicyDecision(decision);
+    expect(validation.ok).toBe(true);
+    if (validation.ok) {
+      expect(validation.value.disposition).toBe('silent');
+      expect(validation.value.rule_id).toBeNull();
+      expect(validation.value.approved_via).toBe('policy:read-only');
+      expect(validation.value.selected_option_id).toBe('summarise_group');
+    }
+  });
+
+  it('routes a reversible card with no policy to a blocked review card', async () => {
+    const runner = vi.fn<HermesRunner>(async (request) => ({
+      stdout: request.args[3] === 'create' ? JSON.stringify({ id: 't_review', title: validActionItem.title, status: 'ready' }) : '',
+      stderr: '',
+      exitCode: 0,
+    }));
+    const filePath = writeTempJson(validActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: loadConfig({ env: {}, configPath: null, overrides: { defaultAssignee: 'default' } }),
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const verbs = runner.mock.calls.map(([request]) => request.args[3]);
+    expect(verbs).toEqual(['create', 'block', 'assign']);
   });
 
   it('rejects invalid action-item JSON before calling Hermes', async () => {
@@ -196,3 +247,296 @@ function writeTempJson(value: unknown, fileName = 'card.json'): string {
   writeFileSync(filePath, JSON.stringify(value), 'utf8');
   return filePath;
 }
+
+// A reversible+self card whose silent disposition depends on a policy rule + band.
+const stateChangingActionItem: ActionItem = sampleActionItem({
+  class: 'email:newsletter-unsubscribe',
+  external_id: 'support-inbox:INBOX:99',
+  idempotency_key: 'keryx:email:support-inbox:INBOX:99',
+  options: [
+    {
+      id: 'unsubscribe',
+      label: 'Unsubscribe',
+      requires_input: false,
+      input_hint: null,
+      delivery: null,
+      reversibility: 'reversible',
+      blast_radius: 'self',
+      undo_prompt: 'Resubscribe to the newsletter.',
+      execution_prompt: 'Unsubscribe from the newsletter via the one-click link.',
+    },
+  ],
+  ui: { primary_option_id: 'unsubscribe', display_group: 'Monitored' },
+});
+
+function ruleFor(state: 'active' | 'shadow', minConfidence: 'cold' | 'warming' | 'trusted'): Policy {
+  return {
+    schema: 'keryx.policy.v1',
+    collector: 'keryx-email',
+    version: 2,
+    updated_at: '2026-06-25T09:00:00Z',
+    rules: [
+      {
+        id: 'r-100',
+        class: 'email:newsletter-unsubscribe',
+        gate: { max_blast_radius: 'self', min_reversibility: 'reversible', min_confidence: minConfidence },
+        disposition: 'silent',
+        result_delivery: 'digest',
+        state,
+        approved_by: 'User',
+        approved_at: '2026-06-25T09:00:00Z',
+        source_card_id: null,
+        scope_note: null,
+      },
+    ],
+    thresholds: { spend_requires_approval_always: true },
+    track_record: {},
+  };
+}
+
+function homeWithPolicy(policy: Policy): string {
+  const home = mkdtempSync(join(tmpdir(), 'keryx-create-card-home-'));
+  const dir = join(home, 'skills', 'keryx-collector-email', 'references');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'policy.json'), JSON.stringify(policy), 'utf8');
+  return home;
+}
+
+// Builds an approving execution-decision comment, used to manufacture a warming/trusted
+// band from the live audit trail for the unsubscribe class.
+function approvedTask(id: string): KanbanTask {
+  return {
+    id,
+    status: 'done',
+    body: JSON.stringify(stateChangingActionItem),
+    comments: [
+      {
+        body: JSON.stringify({
+          schema: 'keryx.execution_decision.v1',
+          selected_option_id: 'unsubscribe',
+          user_feedback: null,
+          approved_by: 'User',
+          approved_via: 'keryx-web',
+          approved_at: '2026-06-25T08:00:00+10:00',
+        }),
+      },
+    ],
+  };
+}
+
+// Models the live two-call contract: `list --json` omits per-task comments; only
+// `show --json` embeds them. Band derivation reads comments, so it enriches via show.
+function policyAwareRunner(tasks: KanbanTask[]) {
+  return vi.fn<HermesRunner>(async (request) => {
+    if (request.args[3] === 'list') {
+      const stripped = tasks.map(({ comments: _comments, ...rest }) => rest);
+      return { stdout: JSON.stringify(stripped), stderr: '', exitCode: 0 };
+    }
+    if (request.args[3] === 'show') {
+      const task = tasks.find((candidate) => candidate.id === request.args[4]);
+      return task
+        ? { stdout: JSON.stringify({ task }), stderr: '', exitCode: 0 }
+        : { stdout: '', stderr: `No fake task ${request.args[4]}`, exitCode: 1 };
+    }
+    if (request.args[3] === 'create') {
+      return { stdout: JSON.stringify({ id: 't_state', title: stateChangingActionItem.title, status: 'ready' }), stderr: '', exitCode: 0 };
+    }
+    if (request.args[3] === 'promote') {
+      return { stdout: JSON.stringify({ id: 't_state', status: 'ready' }), stderr: '', exitCode: 0 };
+    }
+    return { stdout: '', stderr: '', exitCode: 0 };
+  });
+}
+
+describe('opsctl create-card policy + band wiring', () => {
+  it('routes a state-changing card to silent ready when an active rule and band are satisfied', async () => {
+    // 10 approvals + no overrides/regret => trusted band, meeting the rule's min_confidence.
+    const home = homeWithPolicy(ruleFor('active', 'trusted'));
+    const tasks = Array.from({ length: 10 }, (_, index) => approvedTask(`t_hist_${index}`));
+    const runner = policyAwareRunner(tasks);
+    const filePath = writeTempJson(stateChangingActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: loadConfig({ env: {}, configPath: null, overrides: { defaultAssignee: 'default', hermesHome: home } }),
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const verbs = runner.mock.calls.map(([request]) => request.args[3]);
+    // Band derivation enriches each of the 10 history cards via show (list omits comments live).
+    expect(verbs.filter((verb) => verb === 'show')).toHaveLength(10);
+    expect(verbs.filter((verb) => verb !== 'show')).toEqual(['list', 'create', 'comment', 'promote']);
+    const commentCall = runner.mock.calls.find(([request]) => request.args[3] === 'comment');
+    const decision = JSON.parse(commentCall![0].args[5]) as unknown;
+    const validation = validatePolicyDecision(decision);
+    expect(validation.ok).toBe(true);
+    if (validation.ok) {
+      expect(validation.value.disposition).toBe('silent');
+      expect(validation.value.rule_id).toBe('r-100');
+      expect(validation.value.approved_via).toBe('policy:r-100');
+    }
+  });
+
+  it('keeps a shadow rule blocked but records a would-have policy decision', async () => {
+    const home = homeWithPolicy(ruleFor('shadow', 'trusted'));
+    const tasks = Array.from({ length: 10 }, (_, index) => approvedTask(`t_hist_${index}`));
+    const runner = policyAwareRunner(tasks);
+    const filePath = writeTempJson(stateChangingActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: loadConfig({ env: {}, configPath: null, overrides: { defaultAssignee: 'default', hermesHome: home } }),
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const verbs = runner.mock.calls.map(([request]) => request.args[3]);
+    // Band derivation enriches each of the 10 history cards via show (list omits comments live).
+    expect(verbs.filter((verb) => verb === 'show')).toHaveLength(10);
+    // blocked review path with an extra shadow comment after assign
+    expect(verbs.filter((verb) => verb !== 'show')).toEqual(['list', 'create', 'block', 'assign', 'comment']);
+    const commentCall = runner.mock.calls.find(([request]) => request.args[3] === 'comment');
+    const decision = JSON.parse(commentCall![0].args[5]) as unknown;
+    const validation = validatePolicyDecision(decision);
+    expect(validation.ok).toBe(true);
+    if (validation.ok) {
+      expect(validation.value.disposition).toBe('review');
+      expect(validation.value.approved_via).toBe('policy:shadow:r-100');
+      expect(validation.value.reasons.join(' ')).toContain('would have');
+    }
+  });
+
+  it('keeps an active rule blocked when the band is below the gate', async () => {
+    // No history => cold band, below the rule's trusted requirement.
+    const home = homeWithPolicy(ruleFor('active', 'trusted'));
+    const runner = policyAwareRunner([]);
+    const filePath = writeTempJson(stateChangingActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: loadConfig({ env: {}, configPath: null, overrides: { defaultAssignee: 'default', hermesHome: home } }),
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const verbs = runner.mock.calls.map(([request]) => request.args[3]);
+    // no shadow comment: band gate failed, not a shadow rule
+    expect(verbs).toEqual(['list', 'create', 'block', 'assign']);
+  });
+});
+
+// An urgent + external card resolves to interrupt via the disposition function.
+const interruptActionItem: ActionItem = sampleActionItem({
+  class: 'email:account-lockout',
+  external_id: 'support-inbox:INBOX:777',
+  idempotency_key: 'keryx:email:support-inbox:INBOX:777',
+  urgency: 'urgent',
+  proposed_disposition: 'interrupt',
+  risk: 'Account stays locked and the customer escalates if ignored.',
+  default_on_timeout: { action: 'dismiss', after: '17:00' },
+  ui: { primary_option_id: 'translate_forward_contact_archive', display_group: 'Needs decision' },
+});
+
+// Models the live two-call contract: `list --json` omits per-task comments; only
+// `show --json` embeds them. Interrupt dedupe/budget reads notification comments, so
+// createInterruptCard enriches the board via show.
+function interruptRunner(): ReturnType<typeof vi.fn<HermesRunner>> {
+  return vi.fn<HermesRunner>(async (request) => {
+    if (request.args[3] === 'create') {
+      return { stdout: JSON.stringify({ id: 't_int', title: interruptActionItem.title, status: 'blocked' }), stderr: '', exitCode: 0 };
+    }
+    if (request.args[3] === 'list') {
+      return { stdout: JSON.stringify([{ id: 't_int', status: 'blocked' }]), stderr: '', exitCode: 0 };
+    }
+    if (request.args[3] === 'show') {
+      return { stdout: JSON.stringify({ task: { id: 't_int', status: 'blocked', comments: [] } }), stderr: '', exitCode: 0 };
+    }
+    if (request.args[0] === 'send') {
+      return { stdout: 'sent', stderr: '', exitCode: 0 };
+    }
+    return { stdout: '', stderr: '', exitCode: 0 };
+  });
+}
+
+describe('opsctl create-card interrupt delivery', () => {
+  it('creates a blocked card and pushes the §9.2 interrupt message when notify_target is set', async () => {
+    const runner = interruptRunner();
+    const filePath = writeTempJson(interruptActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: { ...loadConfig({ env: {}, configPath: null }), notifyTarget: 'telegram' },
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const calls = runner.mock.calls.map(([request]) => request.args);
+    // create (already blocked) -> assign -> list + show (dedupe/budget enrich) -> send -> comment
+    expect(calls.map((args) => (args[0] === 'send' ? 'send' : args[3]))).toEqual(['create', 'assign', 'list', 'show', 'send', 'comment']);
+
+    const sendArgs = calls.find((args) => args[0] === 'send');
+    expect(sendArgs?.slice(0, 3)).toEqual(['send', '--to', 'telegram']);
+    const message = sendArgs?.[3] ?? '';
+    expect(message).toContain('Urgent: Support request: account access needs review');
+    expect(message).toContain('Risk if wrong: Account stays locked');
+    expect(message).toContain('Open in Keryx: /#/card/t_int');
+    expect(message).toContain('Reply: approve / change / hold');
+
+    const commentArgs = calls.find((args) => args[3] === 'comment');
+    const notification = JSON.parse(commentArgs?.[5] ?? '{}') as { schema?: string; channel?: string; dedupe_key?: string };
+    expect(notification.schema).toBe('keryx.notification.v1');
+    expect(notification.channel).toBe('interrupt');
+    expect(notification.dedupe_key).toBe('keryx:interrupt:urgent:t_int');
+  });
+
+  it('creates the blocked card but does not push when no notify_target is configured', async () => {
+    const runner = interruptRunner();
+    const filePath = writeTempJson(interruptActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: loadConfig({ env: {}, configPath: null }),
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const verbs = runner.mock.calls.map(([request]) => request.args[3] ?? request.args[0]);
+    expect(verbs).toEqual(['create', 'assign']);
+    expect(runner.mock.calls.some(([request]) => request.args[0] === 'send')).toBe(false);
+  });
+
+  it('does not push twice when the card already carries the interrupt notification (dedupe)', async () => {
+    const notificationComment = {
+      body: JSON.stringify({
+        schema: 'keryx.notification.v1',
+        channel: 'interrupt',
+        target: 'telegram',
+        sent_at: '2026-06-26T01:00:00.000Z',
+        dedupe_key: 'keryx:interrupt:urgent:t_int',
+      }),
+    };
+    // Live two-call contract: the notification comment is visible only via show, not list.
+    const runner = vi.fn<HermesRunner>(async (request) => {
+      if (request.args[3] === 'create') {
+        return { stdout: JSON.stringify({ id: 't_int', title: interruptActionItem.title, status: 'blocked' }), stderr: '', exitCode: 0 };
+      }
+      if (request.args[3] === 'list') {
+        return { stdout: JSON.stringify([{ id: 't_int', status: 'blocked' }]), stderr: '', exitCode: 0 };
+      }
+      if (request.args[3] === 'show') {
+        return {
+          stdout: JSON.stringify({ task: { id: 't_int', status: 'blocked', comments: [notificationComment] } }),
+          stderr: '',
+          exitCode: 0,
+        };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    const filePath = writeTempJson(interruptActionItem);
+
+    const result = await runOpsctl(['create-card', filePath], {
+      config: { ...loadConfig({ env: {}, configPath: null }), notifyTarget: 'telegram' },
+      hermesRunner: runner,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.mock.calls.some(([request]) => request.args[0] === 'send')).toBe(false);
+  });
+});
+

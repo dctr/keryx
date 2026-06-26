@@ -1,5 +1,13 @@
 import type { ActionItem } from '../../schemas/actionItem';
 
+export type ConfidenceBand = 'cold' | 'warming' | 'trusted';
+
+export interface TaskOutcome {
+  result_summary: string;
+  result_delivery?: 'digest' | 'push' | 'log_only';
+  changed_state?: string | null;
+}
+
 export interface ApiTask {
   id: string;
   title: string | null;
@@ -8,6 +16,8 @@ export interface ApiTask {
   tenant: string | null;
   created_by: string | null;
   action_item: ActionItem;
+  confidence_band?: ConfidenceBand | null;
+  outcome?: TaskOutcome | null;
 }
 
 export interface MalformedTaskError {
@@ -51,12 +61,115 @@ export interface TaskMutationResponse {
   action?: string;
 }
 
+export type RuleState = 'shadow' | 'active';
+
+export interface PolicyRuleView {
+  id: string;
+  class: string;
+  gate: { max_blast_radius: 'self' | 'external'; min_reversibility: string; min_confidence: ConfidenceBand };
+  disposition: 'silent' | 'review' | 'interrupt';
+  result_delivery?: 'digest' | 'push' | 'log_only';
+  state: RuleState;
+  approved_by: string;
+  approved_at: string;
+  source_card_id: string | null;
+  scope_note: string | null;
+}
+
+export interface PolicyTrackRecordView {
+  approved: number;
+  overridden: number;
+  dismissed: number;
+  regret: number;
+  band: ConfidenceBand;
+}
+
+export interface PolicyResponse {
+  collector: string;
+  exists: boolean;
+  version: number;
+  rules: PolicyRuleView[];
+  track_record: Record<string, PolicyTrackRecordView>;
+}
+
+export interface MetricsResponse {
+  window: { from: string | null; to: string | null };
+  counts: {
+    tasks: number;
+    silentExecutions: number;
+    shadowWouldHave: number;
+    humanApprovals: number;
+    overrides: number;
+    dismissals: number;
+    regrets: number;
+    outcomes: number;
+    interrupts: number;
+  };
+  overrideRate: number | null;
+  shadowAgreementRate: number | null;
+  autonomousSafeCompletionRate: number | null;
+  silentFailureCount: number;
+  recoveryCost: number;
+  escalationRegret: { should_have_acted: number; should_have_asked: number };
+}
+
+export type RegretKind = 'should_have_acted' | 'should_have_asked';
+
 export async function fetchTasks(): Promise<TasksResponse> {
   return requestJson<TasksResponse>('/api/tasks');
 }
 
 export async function fetchSources(): Promise<SourcesResponse> {
   return requestJson<SourcesResponse>('/api/sources');
+}
+
+export async function fetchPolicy(collector: string): Promise<PolicyResponse> {
+  return requestJson<PolicyResponse>(`/api/policy/${encodeURIComponent(collector)}`);
+}
+
+export async function fetchMetrics(window?: string): Promise<MetricsResponse> {
+  const trimmed = (window ?? '').trim();
+  const query = trimmed ? `?window=${encodeURIComponent(trimmed)}` : '';
+  return requestJson<MetricsResponse>(`/api/metrics${query}`);
+}
+
+export async function revokePolicyRule(collector: string, ruleId: string): Promise<TaskMutationResponse> {
+  return requestJson<TaskMutationResponse>(`/api/policy/${encodeURIComponent(collector)}/revoke`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ rule_id: ruleId }),
+  });
+}
+
+export async function recordRegret(taskId: string, kind: RegretKind, note: string): Promise<TaskMutationResponse> {
+  const trimmedNote = note.trim();
+  return requestJson<TaskMutationResponse>(`/api/tasks/${encodeURIComponent(taskId)}/regret`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ kind, ...(trimmedNote ? { note: trimmedNote } : {}) }),
+  });
+}
+
+export interface UndoResponse {
+  ok: true;
+  task_id: string;
+  reversibility?: string;
+  undo_kind?: 'reverse' | 'correct' | 'corrective_card';
+  status?: string;
+}
+
+export async function undoTask(taskId: string): Promise<UndoResponse> {
+  return requestJson<UndoResponse>(`/api/tasks/${encodeURIComponent(taskId)}/undo`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+export async function markReviewed(taskId: string): Promise<TaskMutationResponse> {
+  return requestJson<TaskMutationResponse>(`/api/tasks/${encodeURIComponent(taskId)}/mark-reviewed`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 export async function executeTask(taskId: string, optionId: string, feedback: string): Promise<TaskMutationResponse> {

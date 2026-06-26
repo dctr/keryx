@@ -2,37 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { loadConfig } from '../../src/config';
 import { runOpsctl } from '../../src/opsctl/commands';
+import { sampleActionItem } from '../helpers/sampleActionItem';
 import type { HermesRunner, KanbanStatus, KanbanTask } from '../../src/hermes/types';
 import type { ActionItem } from '../../src/schemas/actionItem';
 
-const actionItem: ActionItem = {
-  schema: 'keryx.action_item.v1',
-  source: 'email',
-  collector: 'keryx-email',
-  external_id: 'support-inbox:INBOX:35680',
-  idempotency_key: 'keryx:email:support-inbox:INBOX:35680',
-  origin_descriptor: 'Support Desk — Account access request',
-  title: 'Support request: account access needs review',
-  summary: 'Customer reports that account access is failing after a recent change.',
-  autonomy: 'auto',
-  urgency: 'normal',
-  deadline: null,
-  risk: 'Support request may stall if ignored.',
-  source_refs: [{ type: 'email', account: 'support-inbox', folder: 'INBOX', uid: '35680' }],
-  options: [
-    {
-      id: 'translate_forward_contact_archive',
-      label: 'Translate + forward to support contact + archive email',
-      requires_input: false,
-      input_hint: null,
-      delivery: null,
-      execution_prompt:
-        "Translate the support request into the target language, forward it to the configured support contact, then archive the source email.",
-    },
-  ],
-  ui: { primary_option_id: 'translate_forward_contact_archive', display_group: 'Needs approval' },
-  created_at: '2026-05-31T00:00:00+10:00',
-};
+const actionItem: ActionItem = sampleActionItem();
 
 const approvedAt = new Date('2026-05-31T12:34:56.000Z');
 

@@ -7,36 +7,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../src/config';
 import { runOpsctl } from '../../src/opsctl/commands';
 import { type ActionItem, validateActionItem } from '../../src/schemas/actionItem';
+import { sampleActionItem } from '../helpers/sampleActionItem';
 import type { HermesRunner } from '../../src/hermes/types';
 
-const validActionItem: ActionItem = {
-  schema: 'keryx.action_item.v1',
-  source: 'email',
-  collector: 'keryx-email',
-  external_id: 'support-inbox:INBOX:35680',
-  idempotency_key: 'keryx:email:support-inbox:INBOX:35680',
-  origin_descriptor: 'Support Desk — Account access request',
-  title: 'Support request: account access needs review',
-  summary: 'Customer reports that account access is failing after a recent change.',
-  autonomy: 'auto',
-  urgency: 'normal',
-  deadline: null,
-  risk: 'Support request may stall if ignored.',
-  source_refs: [{ type: 'email', account: 'support-inbox', folder: 'INBOX', uid: '35680' }],
-  options: [
-    {
-      id: 'translate_forward_contact_archive',
-      label: 'Translate + forward to support contact + archive email',
-      requires_input: false,
-      input_hint: null,
-      delivery: null,
-      execution_prompt:
-        "Translate the support request into the target language, forward it to the configured support contact, then archive the source email.",
-    },
-  ],
-  ui: { primary_option_id: 'translate_forward_contact_archive', display_group: 'Needs approval' },
-  created_at: '2026-05-31T00:00:00+10:00',
-};
+const validActionItem: ActionItem = sampleActionItem();
 
 const validExecutionDecision = {
   schema: 'keryx.execution_decision.v1',
@@ -52,7 +26,7 @@ describe('read-only opsctl commands', () => {
     const result = await runOpsctl(['--help'], { env: {}, configPath: null });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('schema <action-item|execution-decision|collector-state>');
+    expect(result.stdout).toContain('schema <action-item|execution-decision|dismissal-decision|policy-decision|outcome|policy|notification|regret|collector-state>');
     expect(result.stdout).toContain('template-card [--source <source>] [--collector <collector>]');
     expect(result.stdout).toContain('validate-state <file>');
     expect(result.stdout).toContain('validate-decision <file>');
@@ -139,8 +113,14 @@ describe('read-only opsctl commands', () => {
 
   it('prints canonical repository schemas exactly', async () => {
     for (const [name, schemaPath] of [
-      ['action-item', 'schemas/action-item.v1.schema.json'],
+      ['action-item', 'schemas/action-item.v2.schema.json'],
       ['execution-decision', 'schemas/execution-decision.v1.schema.json'],
+      ['dismissal-decision', 'schemas/dismissal-decision.v1.schema.json'],
+      ['policy-decision', 'schemas/policy-decision.v1.schema.json'],
+      ['outcome', 'schemas/outcome.v1.schema.json'],
+      ['policy', 'schemas/policy.v1.schema.json'],
+      ['notification', 'schemas/notification.v1.schema.json'],
+      ['regret', 'schemas/regret.v1.schema.json'],
       ['collector-state', 'schemas/collector-state.v1.schema.json'],
     ] as const) {
       const result = await runOpsctl(['schema', name], { env: {}, configPath: null });
@@ -156,7 +136,9 @@ describe('read-only opsctl commands', () => {
 
     expect(result.exitCode).toBe(2);
     expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('FAIL schema requires one of: action-item, execution-decision, collector-state');
+    expect(result.stderr).toContain(
+      'FAIL schema requires one of: action-item, execution-decision, dismissal-decision, policy-decision, outcome, policy, notification, regret, collector-state',
+    );
   });
 
   it('validates collector-state JSON files', async () => {

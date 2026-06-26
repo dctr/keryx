@@ -3,21 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { ActionItem } from '../../src/schemas/actionItem';
 import type { ApiTask, MalformedTaskError } from '../../src/web/lib/api';
 import { mapMalformedTaskError, mapTaskToView, sortTaskViews, statusLabelFor } from '../../src/web/lib/taskView';
+import { sampleActionItem } from '../helpers/sampleActionItem';
 
-const baseActionItem: ActionItem = {
-  schema: 'keryx.action_item.v1',
-  source: 'email',
-  collector: 'keryx-email',
-  external_id: 'support-inbox:INBOX:35680',
-  idempotency_key: 'keryx:email:support-inbox:INBOX:35680',
-  origin_descriptor: 'Support Desk — Account access request',
-  title: 'Support request: account access needs review',
-  summary: 'Customer reports that account access is failing after a recent change.',
-  autonomy: 'auto',
-  urgency: 'normal',
-  deadline: null,
-  risk: 'Support request may stall if ignored.',
-  source_refs: [{ type: 'email', account: 'support-inbox', folder: 'INBOX', uid: '35680' }],
+const baseActionItem: ActionItem = sampleActionItem({
   options: [
     {
       id: 'translate_forward_contact_archive',
@@ -25,6 +13,9 @@ const baseActionItem: ActionItem = {
       requires_input: false,
       input_hint: null,
       delivery: null,
+      reversibility: 'reversible',
+      blast_radius: 'external',
+      undo_prompt: 'Restore the archived email and retract the forward.',
       execution_prompt:
         "Translate the support request into the target language, forward it to the configured support contact, then archive the source email.",
     },
@@ -34,12 +25,14 @@ const baseActionItem: ActionItem = {
       requires_input: true,
       input_hint: 'Add the tone you want.',
       delivery: 'default',
+      reversibility: 'reversible',
+      blast_radius: 'self',
+      undo_prompt: 'Delete the drafted reply before it is sent.',
       execution_prompt: 'Draft a concise reply and deliver it to the configured Keryx channel.',
     },
   ],
   ui: { primary_option_id: 'reply_only', display_group: 'Needs input' },
-  created_at: '2026-05-31T00:00:00+10:00',
-};
+});
 
 describe('task view mapping', () => {
   it('maps Kanban statuses to compact user-facing labels', () => {
@@ -47,7 +40,7 @@ describe('task view mapping', () => {
     expect(statusLabelFor('todo')).toBe('Needs User');
     expect(statusLabelFor('ready')).toBe('Queued');
     expect(statusLabelFor('running')).toBe('Running');
-    expect(statusLabelFor('done')).toBe('Completed');
+    expect(statusLabelFor('done')).toBe('Review log');
     expect(statusLabelFor('archived')).toBe('Dismissed');
   });
 
@@ -89,6 +82,28 @@ describe('task view mapping', () => {
     expect(preferred.primaryOption?.id).toBe('reply_only');
     expect(preferred.primaryOption?.label).toBe('Draft a short reply only');
     expect(fallback.primaryOption?.id).toBe('translate_forward_contact_archive');
+  });
+
+  it('surfaces v2 evidence: disposition, confidence band, and a review-log outcome', () => {
+    const apiTask = task('t_evidence', { proposed_disposition: 'silent' });
+    apiTask.confidence_band = 'trusted';
+    apiTask.outcome = { result_summary: 'Unsubscribed from Acme Weekly.', result_delivery: 'digest', changed_state: null };
+
+    const view = mapTaskToView(apiTask);
+    expect(view.disposition).toBe('silent');
+    expect(view.dispositionLabel).toBe('Silent');
+    expect(view.confidenceBand).toBe('trusted');
+    expect(view.confidenceLabel).toBe('Trusted');
+    expect(view.outcomeSummary).toBe('Unsubscribed from Acme Weekly.');
+  });
+
+  it('leaves evidence fields null when absent', () => {
+    const view = mapTaskToView(task('t_plain', { proposed_disposition: undefined }));
+    expect(view.disposition).toBeNull();
+    expect(view.dispositionLabel).toBeNull();
+    expect(view.confidenceBand).toBeNull();
+    expect(view.confidenceLabel).toBeNull();
+    expect(view.outcomeSummary).toBeNull();
   });
 });
 

@@ -1,31 +1,23 @@
-import type { Autonomy } from '../../schemas/actionItem';
 import type { TaskCardView } from './taskView';
 import { sortTaskViews } from './taskView';
 
-export type TaskViewKey = 'inbox' | 'running' | 'completed' | 'dismissed';
+export type TaskViewKey = 'needsYou' | 'running' | 'reviewLog' | 'dismissed';
 export type SourceFilter = 'all' | string;
-export type AutonomyFilter = 'all' | Autonomy;
 
 export interface TaskFilters {
   view: TaskViewKey;
   source: SourceFilter;
-  autonomy: AutonomyFilter;
   urgentOnly: boolean;
 }
 
+// Lanes follow the v005 disposition model: cards needing the user (blocked/todo),
+// cards in flight (ready/running), the read-only review log of finished cards
+// (done — silent outcomes and human-approved executions land here), and dismissals.
 export const viewOptions: Array<{ key: TaskViewKey; label: string; statuses: string[] }> = [
-  { key: 'inbox', label: 'Inbox', statuses: ['blocked', 'todo'] },
+  { key: 'needsYou', label: 'Needs you', statuses: ['blocked', 'todo'] },
   { key: 'running', label: 'Running', statuses: ['ready', 'running'] },
-  { key: 'completed', label: 'Completed', statuses: ['done'] },
+  { key: 'reviewLog', label: 'Review log', statuses: ['done'] },
   { key: 'dismissed', label: 'Dismissed', statuses: ['archived'] },
-];
-
-export const autonomyOptions: Array<{ value: AutonomyFilter; label: string }> = [
-  { value: 'all', label: 'All autonomy' },
-  { value: 'auto', label: 'Auto' },
-  { value: 'minimal', label: 'Needs input' },
-  { value: 'research', label: 'Research' },
-  { value: 'complex', label: 'Complex' },
 ];
 
 export function applyTaskFilters(tasks: TaskCardView[], filters: TaskFilters): TaskCardView[] {
@@ -35,9 +27,6 @@ export function applyTaskFilters(tasks: TaskCardView[], filters: TaskFilters): T
         return false;
       }
       if (filters.source !== 'all' && task.source !== filters.source) {
-        return false;
-      }
-      if (filters.autonomy !== 'all' && task.autonomy !== filters.autonomy) {
         return false;
       }
       if (filters.urgentOnly && !isUrgentOrDeadlineSoon(task)) {

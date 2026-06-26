@@ -1,12 +1,26 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
-  import { dismissTask, executeTask, fetchSources, fetchTasks, type ApiTask, type SourceStatus } from './lib/api';
+  import {
+    dismissTask,
+    executeTask,
+    fetchMetrics,
+    fetchPolicy,
+    fetchSources,
+    fetchTasks,
+    markReviewed,
+    recordRegret,
+    revokePolicyRule,
+    undoTask,
+    type ApiTask,
+    type MetricsResponse,
+    type PolicyResponse,
+    type RegretKind,
+    type SourceStatus,
+  } from './lib/api';
   import {
     applyTaskFilters,
-    autonomyOptions,
     countTasksForView,
-    type AutonomyFilter,
     type SourceFilter,
     type TaskViewKey,
     viewOptions,
@@ -30,17 +44,31 @@
   let errorMessage: string | null = null;
   let lastUpdated: Date | null = null;
 
-  let view: TaskViewKey = 'inbox';
+  let view: TaskViewKey = 'needsYou';
   let source: SourceFilter = 'all';
-  let autonomy: AutonomyFilter = 'all';
   let urgentOnly = false;
 
   let feedbackByTask: Record<string, string> = {};
   let pendingByTask: Record<string, PendingAction | undefined> = {};
 
+  let policy: PolicyResponse | null = null;
+  let policyCollector = '';
+  let policyError: string | null = null;
+  let policyLoading = false;
+  let revokingRuleId: string | null = null;
+
+  let metrics: MetricsResponse | null = null;
+  let metricsWindow = '';
+  let metricsError: string | null = null;
+  let metricsLoading = false;
+
+  let regretPendingByTask: Record<string, RegretKind | undefined> = {};
+  let reviewLogPendingByTask: Record<string, 'undo' | 'archive' | undefined> = {};
+
   $: taskViews = tasks.map(mapTaskToView);
-  $: filteredTasks = applyTaskFilters(taskViews, { view, source, autonomy, urgentOnly });
+  $: filteredTasks = applyTaskFilters(taskViews, { view, source, urgentOnly });
   $: sourceOptions = buildSourceOptions(taskViews, sources);
+  $: collectorOptions = buildCollectorOptions(tasks, sources);
 
   onMount(() => {
     void refreshDashboard();
@@ -134,6 +162,132 @@
     return [...values].sort().map((value) => ({ value, label: sourceLabel(value) }));
   }
 
+  function buildCollectorOptions(taskList: ApiTask[], sourceStatuses: SourceStatus[]): string[] {
+    const values = new Set<string>();
+    for (const task of taskList) {
+      if (task.created_by) {
+        values.add(task.created_by);
+      }
+      if (task.action_item?.collector) {
+        values.add(task.action_item.collector);
+      }
+    }
+    for (const status of sourceStatuses) {
+      if (status.name) {
+        values.add(status.name);
+      }
+    }
+    return [...values].sort();
+  }
+
+  async function loadPolicy(): Promise<void> {
+    const collector = policyCollector.trim();
+    if (!collector) {
+      policyError = 'Choose a collector to inspect its policy.';
+      return;
+    }
+    policyLoading = true;
+    policyError = null;
+    try {
+      policy = await fetchPolicy(collector);
+    } catch (error) {
+      policy = null;
+      policyError = error instanceof Error ? error.message : String(error);
+    } finally {
+      policyLoading = false;
+    }
+  }
+
+  async function handleRevokeRule(ruleId: string): Promise<void> {
+    if (!policy) {
+      return;
+    }
+    revokingRuleId = ruleId;
+    policyError = null;
+    try {
+      await revokePolicyRule(policy.collector, ruleId);
+      // Revocation is an approval-gated suggestion card, not an in-place edit; reload the
+      // dashboard so the new card appears in the inbox and reflect that the rule still stands.
+      await refreshDashboard({ silent: true });
+    } catch (error) {
+      policyError = error instanceof Error ? error.message : String(error);
+    } finally {
+      revokingRuleId = null;
+    }
+  }
+
+  async function loadMetrics(): Promise<void> {
+    metricsLoading = true;
+    metricsError = null;
+    try {
+      metrics = await fetchMetrics(metricsWindow);
+    } catch (error) {
+      metrics = null;
+      metricsError = error instanceof Error ? error.message : String(error);
+    } finally {
+      metricsLoading = false;
+    }
+  }
+
+  async function handleRegret(task: TaskCardView, kind: RegretKind): Promise<void> {
+    regretPendingByTask = { ...regretPendingByTask, [task.id]: kind };
+    errorMessage = null;
+    try {
+      await recordRegret(task.id, kind, feedbackByTask[task.id] ?? '');
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      regretPendingByTask = { ...regretPendingByTask, [task.id]: undefined };
+    }
+  }
+
+  // Honest undo (PRD §7.4, D3): the server reads the executed option's reversibility and
+  // creates the appropriate reversal / labeled-correction / corrective-triage card. That
+  // new card lands in the inbox, so refresh rather than mutating this done card's status.
+  async function handleUndo(task: TaskCardView): Promise<void> {
+    reviewLogPendingByTask = { ...reviewLogPendingByTask, [task.id]: 'undo' };
+    errorMessage = null;
+    try {
+      await undoTask(task.id);
+      await refreshDashboard({ silent: true });
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      reviewLogPendingByTask = { ...reviewLogPendingByTask, [task.id]: undefined };
+    }
+  }
+
+  // Archive (mark-reviewed) a done review-log card so it leaves the review log.
+  async function handleArchive(task: TaskCardView): Promise<void> {
+    reviewLogPendingByTask = { ...reviewLogPendingByTask, [task.id]: 'archive' };
+    errorMessage = null;
+    try {
+      const response = await markReviewed(task.id);
+      updateTaskStatus(task.id, response.status ?? 'archived');
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      reviewLogPendingByTask = { ...reviewLogPendingByTask, [task.id]: undefined };
+    }
+  }
+
+  // The review log offers honest undo only when the executed option's reversibility admits
+  // one (reversible -> Undo; compensable -> Correct). read_only/irreversible options show no
+  // undo affordance — there is nothing to reverse, or no honest reversal exists.
+  function undoLabelFor(task: TaskCardView): string | null {
+    if (task.reversibility === 'reversible') {
+      return 'Undo';
+    }
+    if (task.reversibility === 'compensable') {
+      return 'Correct';
+    }
+    return null;
+  }
+
+  function formatPercent(value: number | null): string {
+    return value === null ? '—' : `${Math.round(value * 100)}%`;
+  }
+
   function sourceStatusDetail(status: SourceStatus): string {
     if (status.last_error) {
       return status.last_error;
@@ -225,15 +379,6 @@
         </select>
       </label>
 
-      <label>
-        Autonomy
-        <select aria-label="Autonomy" bind:value={autonomy}>
-          {#each autonomyOptions as option (option.value)}
-            <option value={option.value}>{option.label}</option>
-          {/each}
-        </select>
-      </label>
-
       <label class="inline-check">
         <input type="checkbox" bind:checked={urgentOnly} />
         Urgent / deadline soon
@@ -275,7 +420,18 @@
 
           <div class="badge-row">
             <span>{task.sourceLabel}</span>
-            <span>{task.autonomyLabel}</span>
+            {#if task.reversibility}
+              <span>{task.reversibility}</span>
+            {/if}
+            {#if task.blastRadius}
+              <span>{task.blastRadius}</span>
+            {/if}
+            {#if task.dispositionLabel}
+              <span class="badge-disposition">{task.dispositionLabel}</span>
+            {/if}
+            {#if task.confidenceLabel}
+              <span class="badge-confidence">{task.confidenceLabel}</span>
+            {/if}
             <span>{task.urgencyLabel}</span>
             <span>{task.deadlineLabel}</span>
             {#if task.displayGroup}
@@ -288,7 +444,58 @@
             <p class="risk"><strong>Risk:</strong> {task.risk}</p>
           {/if}
 
-          {#if task.options.length > 0}
+          {#if task.outcomeSummary}
+            <p class="outcome"><strong>Outcome:</strong> {task.outcomeSummary}</p>
+          {/if}
+
+          {#if task.status === 'done'}
+            <div class="task-actions review-log-actions">
+              {#if undoLabelFor(task)}
+                <button
+                  class="secondary undo"
+                  type="button"
+                  data-testid={`undo-${task.id}`}
+                  disabled={reviewLogPendingByTask[task.id] !== undefined}
+                  title={task.reversibility === 'compensable'
+                    ? 'Send a labeled correction; a compensable action cannot be unsent.'
+                    : 'Reverse this reversible action and restore the prior state.'}
+                  onclick={() => handleUndo(task)}
+                >
+                  {reviewLogPendingByTask[task.id] === 'undo' ? 'Working…' : undoLabelFor(task)}
+                </button>
+              {/if}
+              <button
+                class="secondary archive"
+                type="button"
+                data-testid={`archive-${task.id}`}
+                disabled={reviewLogPendingByTask[task.id] !== undefined}
+                title="Mark this reviewed and archive it out of the review log."
+                onclick={() => handleArchive(task)}
+              >
+                {reviewLogPendingByTask[task.id] === 'archive' ? 'Archiving…' : 'Archive'}
+              </button>
+              <button
+                class="secondary regret"
+                type="button"
+                data-testid={`regret-acted-${task.id}`}
+                disabled={regretPendingByTask[task.id] !== undefined}
+                title="Flag that Keryx should have acted (or acted sooner) on this."
+                onclick={() => handleRegret(task, 'should_have_acted')}
+              >
+                {regretPendingByTask[task.id] === 'should_have_acted' ? 'Recording…' : 'Should have acted'}
+              </button>
+              <button
+                class="secondary regret"
+                type="button"
+                data-testid={`regret-asked-${task.id}`}
+                disabled={regretPendingByTask[task.id] !== undefined}
+                title="Flag that Keryx should have asked first instead of acting silently."
+                onclick={() => handleRegret(task, 'should_have_asked')}
+              >
+                {regretPendingByTask[task.id] === 'should_have_asked' ? 'Recording…' : 'Should have asked'}
+              </button>
+            </div>
+          {:else if task.options.length > 0}
             <div class="feedback">
               <textarea
                 aria-label={`Feedback for ${task.title}`}
@@ -319,5 +526,99 @@
         </article>
       {/each}
     {/if}
+  </section>
+
+  <section class="insight-panels" aria-label="Policy and metrics">
+    <article class="insight-panel" data-testid="policy-panel" aria-label="Policy">
+      <header class="insight-header">
+        <h2>Policy</h2>
+        <div class="insight-controls">
+          <label>
+            Collector
+            <select aria-label="Policy collector" bind:value={policyCollector}>
+              <option value="">Choose a collector…</option>
+              {#each collectorOptions as option (option)}
+                <option value={option}>{option}</option>
+              {/each}
+            </select>
+          </label>
+          <button class="secondary" type="button" onclick={() => loadPolicy()} disabled={policyLoading || policyCollector.trim().length === 0}>
+            {policyLoading ? 'Loading…' : 'Load policy'}
+          </button>
+        </div>
+      </header>
+
+      {#if policyError}
+        <p class="insight-error" role="status">{policyError}</p>
+      {:else if !policy}
+        <p class="empty-state">Pick a collector to inspect its active and shadow rules.</p>
+      {:else if policy.rules.length === 0}
+        <p class="empty-state">{policy.exists ? `${policy.collector} has no rules yet.` : `${policy.collector} has no policy file yet.`}</p>
+      {:else}
+        <ul class="rule-list">
+          {#each policy.rules as rule (rule.id)}
+            <li class="rule" data-testid={`policy-rule-${rule.id}`}>
+              <div class="rule-head">
+                <span class={`rule-state rule-state-${rule.state}`}>{rule.state === 'active' ? 'Active' : 'Shadow'}</span>
+                <strong>{rule.class}</strong>
+                <span class="rule-disposition">{rule.disposition}</span>
+                {#if policy.track_record[rule.class]}
+                  <span class={`badge-confidence band-${policy.track_record[rule.class].band}`}>{policy.track_record[rule.class].band}</span>
+                {/if}
+              </div>
+              {#if rule.scope_note}
+                <p class="rule-note">{rule.scope_note}</p>
+              {/if}
+              <div class="rule-foot">
+                <small>{rule.id} · ≤{rule.gate.max_blast_radius} · ≥{rule.gate.min_reversibility} · ≥{rule.gate.min_confidence}</small>
+                <button
+                  class="danger"
+                  type="button"
+                  data-testid={`revoke-rule-${rule.id}`}
+                  disabled={revokingRuleId !== null}
+                  onclick={() => handleRevokeRule(rule.id)}
+                >
+                  {revokingRuleId === rule.id ? 'Proposing…' : 'Revoke'}
+                </button>
+              </div>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </article>
+
+    <article class="insight-panel" data-testid="metrics-panel" aria-label="Metrics">
+      <header class="insight-header">
+        <h2>Metrics</h2>
+        <div class="insight-controls">
+          <label>
+            Window
+            <input aria-label="Metrics window" placeholder="e.g. 7d" bind:value={metricsWindow} />
+          </label>
+          <button class="secondary" type="button" onclick={() => loadMetrics()} disabled={metricsLoading}>
+            {metricsLoading ? 'Loading…' : 'Load metrics'}
+          </button>
+        </div>
+      </header>
+
+      {#if metricsError}
+        <p class="insight-error" role="status">{metricsError}</p>
+      {:else if !metrics}
+        <p class="empty-state">Load attention-economics metrics derived from the Kanban audit trail.</p>
+      {:else}
+        <dl class="metric-grid">
+          <div class="metric"><dt>Cards</dt><dd data-testid="metric-tasks">{metrics.counts.tasks}</dd></div>
+          <div class="metric"><dt>Silent executions</dt><dd data-testid="metric-silent">{metrics.counts.silentExecutions}</dd></div>
+          <div class="metric"><dt>Shadow would-have</dt><dd>{metrics.counts.shadowWouldHave}</dd></div>
+          <div class="metric"><dt>Human approvals</dt><dd>{metrics.counts.humanApprovals}</dd></div>
+          <div class="metric"><dt>Override rate</dt><dd data-testid="metric-override-rate">{formatPercent(metrics.overrideRate)}</dd></div>
+          <div class="metric"><dt>Shadow agreement</dt><dd data-testid="metric-shadow-agreement">{formatPercent(metrics.shadowAgreementRate)}</dd></div>
+          <div class="metric"><dt>Autonomous safe</dt><dd>{formatPercent(metrics.autonomousSafeCompletionRate)}</dd></div>
+          <div class="metric"><dt>Silent failures</dt><dd data-testid="metric-silent-failures">{metrics.silentFailureCount}</dd></div>
+          <div class="metric"><dt>Regrets</dt><dd>{metrics.counts.regrets}</dd></div>
+          <div class="metric"><dt>Interrupts</dt><dd>{metrics.counts.interrupts}</dd></div>
+        </dl>
+      {/if}
+    </article>
   </section>
 </main>

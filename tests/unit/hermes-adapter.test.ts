@@ -10,6 +10,8 @@ import {
   parseKanbanTask,
   parseKanbanTasks,
 } from '../../src/hermes/adapter';
+import { validatePolicyDecision, type PolicyDecision } from '../../src/schemas/policyDecision';
+import { sampleActionItem } from '../helpers/sampleActionItem';
 import type { HermesRunner } from '../../src/hermes/types';
 
 describe('Hermes CLI adapter', () => {
@@ -73,7 +75,7 @@ describe('Hermes CLI adapter', () => {
       'create',
       'Support request: account access needs review',
       '--body',
-      '{"schema":"keryx.action_item.v1"}',
+      '{"schema":"keryx.action_item.v2"}',
       '--tenant',
       'email',
       '--idempotency-key',
@@ -107,12 +109,136 @@ describe('Hermes CLI adapter', () => {
     expect(() => assertAllowedHermesArgs(['kanban', '--board', 'keryx', 'show', 't_1', '--json'])).not.toThrow();
   });
 
+  it('creates a silent card as ready with a validated policy-decision comment, in create -> comment -> promote order', async () => {
+    const item = sampleActionItem();
+    const policyDecision: PolicyDecision = {
+      schema: 'keryx.policy_decision.v1',
+      selected_option_id: item.options[0].id,
+      disposition: 'silent',
+      rule_id: null,
+      reasons: ['read_only -> silent by design'],
+      approved_by: 'keryx-policy',
+      approved_via: 'policy:read-only',
+      approved_at: '2026-06-25T00:00:00+10:00',
+    };
+    const runner = vi.fn<HermesRunner>(async (request) => ({
+      stdout:
+        request.args[3] === 'create'
+          ? JSON.stringify({ id: 't_ready', title: item.title, status: 'blocked' })
+          : request.args[3] === 'promote'
+            ? JSON.stringify({ id: 't_ready', status: 'ready' })
+            : '',
+      stderr: '',
+      exitCode: 0,
+    }));
+    const adapter = new HermesCliAdapter(
+      loadConfig({ env: {}, configPath: null, overrides: { defaultAssignee: 'default' } }),
+      runner,
+    );
+
+    await adapter.createReadyTaskFromActionItem(item, policyDecision);
+
+    const verbs = runner.mock.calls.map(([request]) => request.args[3]);
+    expect(verbs).toEqual(['create', 'comment', 'promote']);
+
+    const commentArgs = runner.mock.calls[1][0].args;
+    expect(commentArgs.slice(0, 5)).toEqual(['kanban', '--board', 'keryx', 'comment', 't_ready']);
+    const commentBody = JSON.parse(commentArgs[5]) as unknown;
+    expect(validatePolicyDecision(commentBody).ok).toBe(true);
+
+    const promoteArgs = runner.mock.calls[2][0].args;
+    expect(promoteArgs).toEqual(['kanban', '--board', 'keryx', 'promote', 't_ready', 'approved by Keryx policy', '--json']);
+  });
+
+  it('sends an interrupt/digest message via the narrow allowlisted send shape', async () => {
+    const runner = vi.fn<HermesRunner>(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const adapter = new HermesCliAdapter(loadConfig({ env: {}, configPath: null }), runner);
+
+    await adapter.sendMessage('telegram:293041098', 'Keryx needs a decision on 2 cards.');
+
+    expect(runner).toHaveBeenCalledWith({
+      bin: 'hermes',
+      args: ['send', '--to', 'telegram:293041098', 'Keryx needs a decision on 2 cards.'],
+      env: {},
+    });
+  });
+
+  it('allowlists only the narrow `send --to <target> <message>` shape (and keeps --list)', () => {
+    expect(() => assertAllowedHermesArgs(['send', '--to', 'telegram', 'hello'])).not.toThrow();
+    expect(() => assertAllowedHermesArgs(['send', '--list', '--json'])).not.toThrow();
+    expect(() => assertAllowedHermesArgs(['send', '--list', 'telegram', '--json'])).not.toThrow();
+
+    // Bare positional target (no --to flag) is not the real CLI shape and is rejected.
+    expect(() => assertAllowedHermesArgs(['send', 'telegram', 'hello'])).toThrow(/not allowlisted/i);
+    // Missing message / missing target / empty parts are rejected.
+    expect(() => assertAllowedHermesArgs(['send', '--to', 'telegram'])).toThrow(/not allowlisted/i);
+    expect(() => assertAllowedHermesArgs(['send', '--to', '', 'hello'])).toThrow(/not allowlisted/i);
+    expect(() => assertAllowedHermesArgs(['send', '--to', 'telegram', ''])).toThrow(/not allowlisted/i);
+    // No extra flags (e.g. --file, --subject, --quiet) past the narrow two-argument shape.
+    expect(() => assertAllowedHermesArgs(['send', '--to', 'telegram', 'hi', '--quiet'])).toThrow(/not allowlisted/i);
+    expect(() => assertAllowedHermesArgs(['send'])).toThrow(/not allowlisted/i);
+  });
+
+  it('enriches list results with per-task comments via show (the live two-call contract)', async () => {
+    // The live `kanban list --json` omits per-task comments; only `show --json` embeds them.
+    // listTasksWithComments lists once, then merges each task's comments fetched via show.
+    const listOutput = JSON.stringify([
+      { id: 't_a', status: 'done' },
+      { id: 't_b', status: 'blocked' },
+    ]);
+    const showOutputs: Record<string, string> = {
+      t_a: JSON.stringify({ task: { id: 't_a', status: 'done' }, comments: [{ body: '{"schema":"keryx.outcome.v1"}' }] }),
+      t_b: JSON.stringify({ task: { id: 't_b', status: 'blocked' }, comments: [] }),
+    };
+    const runner = vi.fn<HermesRunner>(async (request) => {
+      if (request.args[3] === 'list') {
+        return { stdout: listOutput, stderr: '', exitCode: 0 };
+      }
+      if (request.args[3] === 'show') {
+        return { stdout: showOutputs[request.args[4]] ?? '{}', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    const adapter = new HermesCliAdapter(loadConfig({ env: {}, configPath: null }), runner);
+
+    const tasks = await adapter.listTasksWithComments({ status: 'done' });
+
+    expect(tasks).toEqual([
+      { id: 't_a', status: 'done', comments: [{ body: '{"schema":"keryx.outcome.v1"}' }] },
+      { id: 't_b', status: 'blocked', comments: [] },
+    ]);
+    const verbs = runner.mock.calls.map(([request]) => request.args[3]);
+    expect(verbs).toEqual(['list', 'show', 'show']);
+    // list still carries its filter; show targets each listed task id.
+    expect(runner.mock.calls[0][0].args).toEqual(['kanban', '--board', 'keryx', 'list', '--status', 'done', '--json']);
+    expect(runner.mock.calls.slice(1).map(([request]) => request.args[4])).toEqual(['t_a', 't_b']);
+  });
+
   it('parses Hermes Kanban JSON envelopes', () => {
     expect(parseKanbanTasks(JSON.stringify([{ id: 't_2', status: 'done' }]))).toEqual([{ id: 't_2', status: 'done' }]);
     expect(parseKanbanTask(JSON.stringify({ task: { id: 't_3', title: 'Single' } }))).toEqual({ id: 't_3', title: 'Single' });
     expect(() => parseKanbanTasks(JSON.stringify({ tasks: [{ id: 't_1', status: 'blocked' }] }))).toThrow(
       /Hermes Kanban list JSON did not contain a task array/,
     );
+  });
+
+  it('merges the top-level comments sibling from the real show envelope onto the task', () => {
+    // The live `hermes kanban show --json` puts `comments` as a TOP-LEVEL sibling of
+    // `task`, NOT nested inside it. parseKanbanTask must merge them so the comment-reading
+    // callers (digest/metrics/track-record/default-resolve/dedupe via listTasksWithComments)
+    // actually see outcomes/decisions against the real CLI.
+    const showEnvelope = JSON.stringify({
+      task: { id: 't_live', status: 'done' },
+      latest_summary: null,
+      parents: [],
+      children: [],
+      comments: [{ author: 'default', body: '{"schema":"keryx.outcome.v1"}', created_at: 1 }],
+    });
+    expect(parseKanbanTask(showEnvelope)).toEqual({
+      id: 't_live',
+      status: 'done',
+      comments: [{ author: 'default', body: '{"schema":"keryx.outcome.v1"}', created_at: 1 }],
+    });
   });
 
   it('normalises Hermes send list JSON into delivery targets', () => {

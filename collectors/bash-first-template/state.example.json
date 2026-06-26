@@ -1,7 +1,0 @@
-{
-  "schema": "keryx.collector_state.v1",
-  "source": "example-source",
-  "committed_cursor": "000000",
-  "last_success_at": null,
-  "exact_dismissed_external_ids": []
-}
