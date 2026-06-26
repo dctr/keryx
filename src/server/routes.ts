@@ -2,12 +2,13 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 
 import type { KeryxConfig } from '../config';
 import type { ListTaskOptions } from '../hermes/adapter';
+import { cronJobCandidates, inferCronEnabled, sourceFromJobName } from '../hermes/cronNormalise';
+import { parseActionItemFromTask, stringOrNull, taskStatus } from '../hermes/taskBody';
 import type { HermesRunner, KanbanTask } from '../hermes/types';
 import { firstString, isPlainObject } from '../util/object';
 import { type RunOpsctlOptions } from '../opsctl/commands';
 import type { CommandResult } from '../opsctl/output';
-import { formatValidationErrors } from '../opsctl/output';
-import { type ActionItem, validateActionItem } from '../schemas/actionItem';
+import type { ActionItem } from '../schemas/actionItem';
 
 export type OpsctlRunner = (argv: string[], options?: RunOpsctlOptions) => Promise<CommandResult>;
 
@@ -108,7 +109,7 @@ export function registerApiRoutes(server: FastifyInstance, options: RegisterApiR
     noStore(reply);
     try {
       const jobs = normaliseCronJobs(await options.adapter.listCronJobs()).filter((job) => job.name.startsWith('keryx-'));
-      return { ok: true, sources: jobs.map(toSourceStatus) };
+      return { ok: true, sources: jobs };
     } catch (error) {
       return sendApiError(reply, 502, 'HERMES_ERROR', errorMessage(error));
     }
@@ -355,45 +356,8 @@ function optionalString(value: unknown, field: string): { ok: true; value: strin
   return { ok: true, value: trimmed.length > 0 ? trimmed : null };
 }
 
-function parseActionItemFromTask(task: KanbanTask): { ok: true; actionItem: ActionItem } | { ok: false; message: string } {
-  if (typeof task.body !== 'string') {
-    return { ok: false, message: 'task body is not a JSON string' };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(task.body) as unknown;
-  } catch (error) {
-    return { ok: false, message: `task body is not valid JSON: ${errorMessage(error)}` };
-  }
-
-  const validation = validateActionItem(parsed);
-  if (!validation.ok) {
-    return { ok: false, message: formatValidationErrors(validation.errors) };
-  }
-
-  return { ok: true, actionItem: validation.value };
-}
-
 function normaliseCronJobs(value: unknown): SourceStatus[] {
   return cronJobCandidates(value).map(normaliseCronJob).filter((job): job is SourceStatus => job !== null);
-}
-
-function cronJobCandidates(value: unknown): unknown[] {
-  if (Array.isArray(value)) {
-    return value;
-  }
-  if (!isPlainObject(value)) {
-    return [];
-  }
-
-  for (const key of ['jobs', 'cron_jobs', 'items', 'results']) {
-    if (Array.isArray(value[key])) {
-      return value[key];
-    }
-  }
-
-  return Object.values(value).flatMap((entry) => (Array.isArray(entry) ? entry : []));
 }
 
 function normaliseCronJob(value: unknown): SourceStatus | null {
@@ -431,26 +395,6 @@ function normaliseCronJob(value: unknown): SourceStatus | null {
   return job;
 }
 
-function toSourceStatus(job: SourceStatus): SourceStatus {
-  return job;
-}
-
-function inferCronEnabled(value: Record<string, unknown>): boolean {
-  if (typeof value.enabled === 'boolean') {
-    return value.enabled;
-  }
-  if (typeof value.paused === 'boolean') {
-    return !value.paused;
-  }
-
-  const status = firstString(value.status, value.state);
-  if (status) {
-    return !['paused', 'disabled', 'stopped'].includes(status.toLowerCase());
-  }
-
-  return true;
-}
-
 function inferSourceStatus(job: SourceStatus): SourceStatus['status'] {
   if (!job.enabled) {
     return 'PAUSED';
@@ -466,19 +410,6 @@ function inferSourceStatus(job: SourceStatus): SourceStatus['status'] {
 
   return 'UNKNOWN';
 }
-
-function sourceFromJobName(name: string): string {
-  return name.startsWith('keryx-') ? name.slice('keryx-'.length) : name;
-}
-
-function taskStatus(task: KanbanTask): string {
-  return typeof task.status === 'string' && task.status.trim().length > 0 ? task.status : 'unknown';
-}
-
-function stringOrNull(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value : null;
-}
-
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

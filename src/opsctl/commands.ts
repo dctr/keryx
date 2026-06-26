@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 import { type KeryxConfig, loadConfig } from '../config';
 import { HermesCliAdapter, parseHermesVersion } from '../hermes/adapter';
+import { cronJobCandidates, inferCronEnabled } from '../hermes/cronNormalise';
+import { parseActionItemFromTask } from '../hermes/taskBody';
 import type { HermesRunner, KanbanTask } from '../hermes/types';
 import { firstString, isPlainObject } from '../util/object';
 import { deriveBand, type Band, type TrackRecord } from '../policy/confidence';
@@ -2059,46 +2061,8 @@ function validateTaskBody(task: KanbanTask): { ok: true } | { ok: false; message
   return parsed.ok ? { ok: true } : { ok: false, message: parsed.message };
 }
 
-function parseActionItemFromTask(task: KanbanTask): { ok: true; actionItem: ActionItem } | { ok: false; message: string } {
-  if (typeof task.body !== 'string') {
-    return { ok: false, message: 'task body is not a JSON string' };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(task.body) as unknown;
-  } catch (error) {
-    return { ok: false, message: `task body is not valid JSON: ${error instanceof Error ? error.message : String(error)}` };
-  }
-
-  const validation = validateActionItem(parsed);
-  if (!validation.ok) {
-    return { ok: false, message: formatValidationErrors(validation.errors) };
-  }
-
-  return { ok: true, actionItem: validation.value };
-}
-
 function normaliseCronJobs(value: unknown): CronJobSummary[] {
-  const candidates = findCronJobCandidates(value);
-  return candidates.map(normaliseCronJob).filter((job): job is CronJobSummary => job !== null);
-}
-
-function findCronJobCandidates(value: unknown): unknown[] {
-  if (Array.isArray(value)) {
-    return value;
-  }
-  if (!isPlainObject(value)) {
-    return [];
-  }
-
-  for (const key of ['jobs', 'cron_jobs', 'items', 'results']) {
-    if (Array.isArray(value[key])) {
-      return value[key];
-    }
-  }
-
-  return Object.values(value).flatMap((entry) => (Array.isArray(entry) ? entry : []));
+  return cronJobCandidates(value).map(normaliseCronJob).filter((job): job is CronJobSummary => job !== null);
 }
 
 function normaliseCronJob(value: unknown): CronJobSummary | null {
@@ -2120,19 +2084,6 @@ function normaliseCronJob(value: unknown): CronJobSummary | null {
     enabled: inferCronEnabled(value),
     ...(firstString(value.schedule, value.cron, value.interval) ? { schedule: firstString(value.schedule, value.cron, value.interval) } : {}),
   };
-}
-
-function inferCronEnabled(value: Record<string, unknown>): boolean {
-  if (typeof value.enabled === 'boolean') {
-    return value.enabled;
-  }
-  if (typeof value.paused === 'boolean') {
-    return !value.paused;
-  }
-  if (typeof value.status === 'string') {
-    return !['paused', 'disabled', 'stopped'].includes(value.status.toLowerCase());
-  }
-  return true;
 }
 
 function stringFlag(parsed: ParsedArgs, name: string): string | undefined {
