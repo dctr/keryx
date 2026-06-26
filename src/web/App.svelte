@@ -34,7 +34,13 @@
   } from './lib/taskView';
   import type { ActionOption } from '../schemas/actionItem';
 
-  type PendingAction = 'execute' | 'dismiss';
+  type PendingAction =
+    | 'execute'
+    | 'dismiss'
+    | 'regret-acted'
+    | 'regret-asked'
+    | 'review-undo'
+    | 'review-archive';
 
   let tasks: ApiTask[] = [];
   let malformedCards: MalformedTaskView[] = [];
@@ -61,9 +67,6 @@
   let metricsWindow = '';
   let metricsError: string | null = null;
   let metricsLoading = false;
-
-  let regretPendingByTask: Record<string, RegretKind | undefined> = {};
-  let reviewLogPendingByTask: Record<string, 'undo' | 'archive' | undefined> = {};
 
   $: taskViews = tasks.map(mapTaskToView);
   $: filteredTasks = applyTaskFilters(taskViews, { view, source, urgentOnly });
@@ -230,14 +233,15 @@
   }
 
   async function handleRegret(task: TaskCardView, kind: RegretKind): Promise<void> {
-    regretPendingByTask = { ...regretPendingByTask, [task.id]: kind };
+    const pendingKind: PendingAction = kind === 'should_have_acted' ? 'regret-acted' : 'regret-asked';
+    pendingByTask = { ...pendingByTask, [task.id]: pendingKind };
     errorMessage = null;
     try {
       await recordRegret(task.id, kind, feedbackByTask[task.id] ?? '');
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
     } finally {
-      regretPendingByTask = { ...regretPendingByTask, [task.id]: undefined };
+      pendingByTask = { ...pendingByTask, [task.id]: undefined };
     }
   }
 
@@ -245,7 +249,7 @@
   // creates the appropriate reversal / labeled-correction / corrective-triage card. That
   // new card lands in the inbox, so refresh rather than mutating this done card's status.
   async function handleUndo(task: TaskCardView): Promise<void> {
-    reviewLogPendingByTask = { ...reviewLogPendingByTask, [task.id]: 'undo' };
+    pendingByTask = { ...pendingByTask, [task.id]: 'review-undo' };
     errorMessage = null;
     try {
       await undoTask(task.id);
@@ -253,13 +257,13 @@
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
     } finally {
-      reviewLogPendingByTask = { ...reviewLogPendingByTask, [task.id]: undefined };
+      pendingByTask = { ...pendingByTask, [task.id]: undefined };
     }
   }
 
   // Archive (mark-reviewed) a done review-log card so it leaves the review log.
   async function handleArchive(task: TaskCardView): Promise<void> {
-    reviewLogPendingByTask = { ...reviewLogPendingByTask, [task.id]: 'archive' };
+    pendingByTask = { ...pendingByTask, [task.id]: 'review-archive' };
     errorMessage = null;
     try {
       const response = await markReviewed(task.id);
@@ -267,7 +271,7 @@
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
     } finally {
-      reviewLogPendingByTask = { ...reviewLogPendingByTask, [task.id]: undefined };
+      pendingByTask = { ...pendingByTask, [task.id]: undefined };
     }
   }
 
@@ -455,44 +459,44 @@
                   class="secondary undo"
                   type="button"
                   data-testid={`undo-${task.id}`}
-                  disabled={reviewLogPendingByTask[task.id] !== undefined}
+                  disabled={pendingByTask[task.id] !== undefined}
                   title={task.reversibility === 'compensable'
                     ? 'Send a labeled correction; a compensable action cannot be unsent.'
                     : 'Reverse this reversible action and restore the prior state.'}
                   onclick={() => handleUndo(task)}
                 >
-                  {reviewLogPendingByTask[task.id] === 'undo' ? 'Working…' : undoLabelFor(task)}
+                  {pendingByTask[task.id] === 'review-undo' ? 'Working…' : undoLabelFor(task)}
                 </button>
               {/if}
               <button
                 class="secondary archive"
                 type="button"
                 data-testid={`archive-${task.id}`}
-                disabled={reviewLogPendingByTask[task.id] !== undefined}
+                disabled={pendingByTask[task.id] !== undefined}
                 title="Mark this reviewed and archive it out of the review log."
                 onclick={() => handleArchive(task)}
               >
-                {reviewLogPendingByTask[task.id] === 'archive' ? 'Archiving…' : 'Archive'}
+                {pendingByTask[task.id] === 'review-archive' ? 'Archiving…' : 'Archive'}
               </button>
               <button
                 class="secondary regret"
                 type="button"
                 data-testid={`regret-acted-${task.id}`}
-                disabled={regretPendingByTask[task.id] !== undefined}
+                disabled={pendingByTask[task.id] !== undefined}
                 title="Flag that Keryx should have acted (or acted sooner) on this."
                 onclick={() => handleRegret(task, 'should_have_acted')}
               >
-                {regretPendingByTask[task.id] === 'should_have_acted' ? 'Recording…' : 'Should have acted'}
+                {pendingByTask[task.id] === 'regret-acted' ? 'Recording…' : 'Should have acted'}
               </button>
               <button
                 class="secondary regret"
                 type="button"
                 data-testid={`regret-asked-${task.id}`}
-                disabled={regretPendingByTask[task.id] !== undefined}
+                disabled={pendingByTask[task.id] !== undefined}
                 title="Flag that Keryx should have asked first instead of acting silently."
                 onclick={() => handleRegret(task, 'should_have_asked')}
               >
-                {regretPendingByTask[task.id] === 'should_have_asked' ? 'Recording…' : 'Should have asked'}
+                {pendingByTask[task.id] === 'regret-asked' ? 'Recording…' : 'Should have asked'}
               </button>
             </div>
           {:else if task.options.length > 0}
