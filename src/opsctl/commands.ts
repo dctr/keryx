@@ -325,98 +325,87 @@ function templateCard(parsed: ParsedArgs, now: () => Date): CommandResult {
   return validation.ok ? ok(json(card)) : fail(`FAIL generated template is invalid\n${formatValidationErrors(validation.errors)}`);
 }
 
-function validateCard(filePath: string | undefined): CommandResult {
+type ValidateFn<T> = (raw: unknown) => import('../schemas/validate').ValidationResult<T>;
+
+interface ValidateSpec<T> {
+  cmd: string;
+  noun: string;
+  validate: ValidateFn<T>;
+  echoField: (v: T) => string;
+}
+
+function runValidate<T>(filePath: string | undefined, spec: ValidateSpec<T>): CommandResult {
   if (!filePath) {
-    return fail('FAIL validate-card requires a JSON file path', 2);
+    return fail(`FAIL ${spec.cmd} requires a JSON file path`, 2);
   }
-
-  const parsed = parseJsonFile(filePath);
-  const validation = validateActionItem(parsed);
+  const validation = spec.validate(parseJsonFile(filePath));
   if (!validation.ok) {
-    return fail(`FAIL invalid action card: ${filePath}\n${formatValidationErrors(validation.errors)}`);
+    return fail(`FAIL invalid ${spec.noun}: ${filePath}\n${formatValidationErrors(validation.errors)}`);
   }
+  return ok(`OK valid ${spec.noun}: ${spec.echoField(validation.value)}`);
+}
 
-  return ok(`OK valid action card: ${validation.value.title}`);
+function validateCard(filePath: string | undefined): CommandResult {
+  return runValidate(filePath, {
+    cmd: 'validate-card',
+    noun: 'action card',
+    validate: validateActionItem,
+    echoField: (v) => v.title,
+  });
 }
 
 function validateDecision(filePath: string | undefined): CommandResult {
-  if (!filePath) {
-    return fail('FAIL validate-decision requires a JSON file path', 2);
-  }
-
-  const parsed = parseJsonFile(filePath);
-  const validation = validateExecutionDecision(parsed);
-  if (!validation.ok) {
-    return fail(`FAIL invalid execution decision: ${filePath}\n${formatValidationErrors(validation.errors)}`);
-  }
-
-  return ok(`OK valid execution decision: ${validation.value.selected_option_id}`);
+  return runValidate(filePath, {
+    cmd: 'validate-decision',
+    noun: 'execution decision',
+    validate: validateExecutionDecision,
+    echoField: (v) => v.selected_option_id,
+  });
 }
 
 function validateState(filePath: string | undefined): CommandResult {
-  if (!filePath) {
-    return fail('FAIL validate-state requires a JSON file path', 2);
-  }
-
-  const parsed = parseJsonFile(filePath);
-  const validation = validateCollectorState(parsed);
-  if (!validation.ok) {
-    return fail(`FAIL invalid collector state: ${filePath}\n${formatValidationErrors(validation.errors)}`);
-  }
-
-  return ok(`OK valid collector state: ${validation.value.source}`);
+  return runValidate(filePath, {
+    cmd: 'validate-state',
+    noun: 'collector state',
+    validate: validateCollectorState,
+    echoField: (v) => v.source,
+  });
 }
 
 function validatePolicyDecisionCommand(filePath: string | undefined): CommandResult {
-  if (!filePath) {
-    return fail('FAIL validate-policy-decision requires a JSON file path', 2);
-  }
-
-  const validation = validatePolicyDecision(parseJsonFile(filePath));
-  if (!validation.ok) {
-    return fail(`FAIL invalid policy decision: ${filePath}\n${formatValidationErrors(validation.errors)}`);
-  }
-
-  return ok(`OK valid policy decision: ${validation.value.disposition}`);
+  return runValidate(filePath, {
+    cmd: 'validate-policy-decision',
+    noun: 'policy decision',
+    validate: validatePolicyDecision,
+    echoField: (v) => v.disposition,
+  });
 }
 
 function validateOutcomeCommand(filePath: string | undefined): CommandResult {
-  if (!filePath) {
-    return fail('FAIL validate-outcome requires a JSON file path', 2);
-  }
-
-  const validation = validateOutcome(parseJsonFile(filePath));
-  if (!validation.ok) {
-    return fail(`FAIL invalid outcome: ${filePath}\n${formatValidationErrors(validation.errors)}`);
-  }
-
-  return ok(`OK valid outcome: ${validation.value.executed_option_id}`);
+  return runValidate(filePath, {
+    cmd: 'validate-outcome',
+    noun: 'outcome',
+    validate: validateOutcome,
+    echoField: (v) => v.executed_option_id,
+  });
 }
 
 function validatePolicyCommand(filePath: string | undefined): CommandResult {
-  if (!filePath) {
-    return fail('FAIL validate-policy requires a JSON file path', 2);
-  }
-
-  const validation = validatePolicy(parseJsonFile(filePath));
-  if (!validation.ok) {
-    return fail(`FAIL invalid policy: ${filePath}\n${formatValidationErrors(validation.errors)}`);
-  }
-
-  return ok(`OK valid policy: ${validation.value.collector}`);
+  return runValidate(filePath, {
+    cmd: 'validate-policy',
+    noun: 'policy',
+    validate: validatePolicy,
+    echoField: (v) => v.collector,
+  });
 }
 
 function validateDismissalCommand(filePath: string | undefined): CommandResult {
-  if (!filePath) {
-    return fail('FAIL validate-dismissal requires a JSON file path', 2);
-  }
-
-  const validation = validateDismissalDecision(parseJsonFile(filePath));
-  if (!validation.ok) {
-    return fail(`FAIL invalid dismissal decision: ${filePath}\n${formatValidationErrors(validation.errors)}`);
-  }
-
-  return ok(`OK valid dismissal decision: ${validation.value.dismissed_external_id}`);
+  return runValidate(filePath, {
+    cmd: 'validate-dismissal',
+    noun: 'dismissal decision',
+    validate: validateDismissalDecision,
+    echoField: (v) => v.dismissed_external_id,
+  });
 }
 
 async function createCard(filePath: string | undefined, adapter: HermesCliAdapter, options: RunOpsctlOptions): Promise<CommandResult> {
