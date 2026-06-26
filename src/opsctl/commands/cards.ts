@@ -14,7 +14,7 @@ import { notificationSchema } from '../../schemas/notification';
 import { outcomeSchema, validateOutcome } from '../../schemas/outcome';
 import type { Outcome } from '../../schemas/outcome';
 import { policySchema } from '../../schemas/policy';
-import { policyDecisionSchema, type PolicyDecision } from '../../schemas/policyDecision';
+import { policyDecisionSchema } from '../../schemas/policyDecision';
 import { regretSchema } from '../../schemas/regret';
 import { deriveBand, type Band, type TrackRecord } from '../../policy/confidence';
 import { decideDisposition } from '../../policy/disposition';
@@ -32,6 +32,7 @@ import {
 import type { CommandResult, CronJobSummary } from '../output';
 import { fail, formatCronJobs, formatDeliveryTargets, formatTasks, formatTaskShow, formatValidationErrors, json, ok } from '../output';
 import { collectorSource, normaliseCronJobs, parseJsonFile, type CommandContext, type RunOpsctlOptions, stringFlag, validateTaskBody } from '../shared';
+import { buildPolicyDecision } from '../builders';
 
 // ---------------------------------------------------------------------------
 // Schema map + schema command
@@ -204,46 +205,6 @@ async function resolveDisposition(
   return decideDisposition(card, selected, band, policy);
 }
 
-function buildPolicyDecision(
-  card: ActionItem,
-  selected: ActionOption,
-  ruleId: string | null,
-  reasons: string[],
-  now: () => Date,
-): PolicyDecision {
-  return {
-    schema: 'keryx.policy_decision.v1',
-    selected_option_id: selected.id,
-    disposition: 'silent',
-    rule_id: ruleId,
-    reasons,
-    approved_by: 'keryx-policy',
-    approved_via: ruleId ? `policy:${ruleId}` : 'policy:read-only',
-    approved_at: now().toISOString(),
-  };
-}
-
-// A shadow-mode "would have" record. The card stays in review (blocked); this
-// comment captures that an in-shadow rule would have authorized a silent run.
-function buildShadowPolicyDecision(
-  card: ActionItem,
-  selected: ActionOption,
-  ruleId: string | null,
-  reasons: string[],
-  now: () => Date,
-): PolicyDecision {
-  return {
-    schema: 'keryx.policy_decision.v1',
-    selected_option_id: selected.id,
-    disposition: 'review',
-    rule_id: ruleId,
-    reasons,
-    approved_by: 'keryx-policy',
-    approved_via: ruleId ? `policy:shadow:${ruleId}` : 'policy:shadow',
-    approved_at: now().toISOString(),
-  };
-}
-
 function createdTaskId(created: unknown): string | null {
   if (typeof created === 'object' && created !== null) {
     const id = (created as { id?: unknown }).id;
@@ -319,7 +280,7 @@ export async function createCard(ctx: CommandContext): Promise<CommandResult> {
   const disposition = await resolveDisposition(card, selected, adapter, options);
 
   if (disposition.disposition === 'silent') {
-    const policyDecision = buildPolicyDecision(card, selected, disposition.rule_id, disposition.reasons, now);
+    const policyDecision = buildPolicyDecision({ selected, ruleId: disposition.rule_id, reasons: disposition.reasons, now, shadow: false });
     return ok(json(await adapter.createReadyTaskFromActionItem(card, policyDecision)));
   }
 
@@ -328,7 +289,7 @@ export async function createCard(ctx: CommandContext): Promise<CommandResult> {
   }
 
   const shadowDecision = disposition.shadow
-    ? buildShadowPolicyDecision(card, selected, disposition.rule_id, disposition.reasons, now)
+    ? buildPolicyDecision({ selected, ruleId: disposition.rule_id, reasons: disposition.reasons, now, shadow: true })
     : undefined;
   return ok(json(await adapter.createTaskFromActionItem(card, shadowDecision)));
 }
@@ -359,7 +320,7 @@ export async function autoExecute(ctx: CommandContext): Promise<CommandResult> {
     );
   }
 
-  const policyDecision = buildPolicyDecision(card, selected, disposition.rule_id, disposition.reasons, now);
+  const policyDecision = buildPolicyDecision({ selected, ruleId: disposition.rule_id, reasons: disposition.reasons, now, shadow: false });
   return ok(json(await adapter.createReadyTaskFromActionItem(card, policyDecision)));
 }
 

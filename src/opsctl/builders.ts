@@ -2,7 +2,8 @@
 // Each function takes explicit actor fields so callers (human UI vs. automated resolver)
 // can supply their own approved_by / approved_via without duplicating the schema shape.
 
-import type { ActionItem } from '../schemas/actionItem';
+import type { ActionItem, ActionOption } from '../schemas/actionItem';
+import type { PolicyDecision } from '../schemas/policyDecision';
 
 // ---------------------------------------------------------------------------
 // Execution decision (keryx.execution_decision.v1)
@@ -49,5 +50,42 @@ export function buildDismissalDecision(params: BuildDismissalDecisionParams) {
     dismissed_by: params.dismissedBy,
     dismissed_via: params.dismissedVia,
     dismissed_at: params.now().toISOString(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Policy decision (keryx.policy_decision.v1)
+// ---------------------------------------------------------------------------
+
+export interface BuildPolicyDecisionParams {
+  selected: ActionOption;
+  ruleId: string | null;
+  reasons: string[];
+  now: () => Date;
+  /** When true, emits a shadow-mode "would have" record: disposition=review and
+   *  approved_via includes 'shadow' so the card stays in review while the intent
+   *  to authorize is recorded. */
+  shadow: boolean;
+}
+
+export function buildPolicyDecision(params: BuildPolicyDecisionParams): PolicyDecision {
+  const { selected, ruleId, reasons, now, shadow } = params;
+  const disposition = shadow ? 'review' : 'silent';
+  const approved_via = shadow
+    ? ruleId
+      ? `policy:shadow:${ruleId}`
+      : 'policy:shadow'
+    : ruleId
+      ? `policy:${ruleId}`
+      : 'policy:read-only';
+  return {
+    schema: 'keryx.policy_decision.v1',
+    selected_option_id: selected.id,
+    disposition,
+    rule_id: ruleId,
+    reasons,
+    approved_by: 'keryx-policy',
+    approved_via,
+    approved_at: now().toISOString(),
   };
 }
