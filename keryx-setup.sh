@@ -266,8 +266,10 @@ write_config() {
       say "DRY-RUN would keep existing Keryx config: $CONFIG_PATH"
     elif [ "$config_exists" -eq 1 ]; then
       say "DRY-RUN would overwrite existing Keryx config: $CONFIG_PATH"
+      say "DRY-RUN would list delivery targets via hermes send --list --json and store the chosen notify_target"
     else
       say "DRY-RUN would write Keryx config to $CONFIG_PATH"
+      say "DRY-RUN would list delivery targets via hermes send --list --json and store the chosen notify_target"
     fi
     return 0
   fi
@@ -290,16 +292,54 @@ write_config() {
   fi
 
   mkdir -p "$(dirname -- "$CONFIG_PATH")"
-  node --input-type=module - "$CONFIG_PATH" "$HERMES_BIN" <<'NODE'
+
+  # Delivery-target discovery (PRD §9, D2): enumerate targets and store the chosen
+  # notify_target. KERYX_NOTIFY_TARGET overrides the discovered default; otherwise the
+  # first discovered platform is used. A discovery failure leaves notify_target unset
+  # (digest-only) rather than aborting setup.
+  send_list_json=$(HERMES_HOME="$HERMES_HOME_PATH" "$HERMES_BIN" send --list --json 2>/dev/null || printf '')
+
+  node --input-type=module - "$CONFIG_PATH" "$HERMES_BIN" "${KERYX_NOTIFY_TARGET:-}" "$send_list_json" <<'NODE'
 import { writeFileSync } from 'node:fs';
 
-const [configPath, hermesBin] = process.argv.slice(2);
+const [configPath, hermesBin, overrideTarget, sendListJson] = process.argv.slice(2);
+
+function discoverPlatforms() {
+  if (!sendListJson || sendListJson.trim().length === 0) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(sendListJson);
+    if (parsed && typeof parsed.platforms === 'object' && parsed.platforms !== null) {
+      return Object.keys(parsed.platforms);
+    }
+  } catch {
+    // Malformed send --list output: fall through to no targets (digest-only).
+  }
+  return [];
+}
+
+const platforms = discoverPlatforms();
+const chosen = overrideTarget && overrideTarget.trim().length > 0 ? overrideTarget.trim() : platforms[0];
+
 const config = {
   board: 'keryx',
   defaultAssignee: 'default',
   hermesBin,
 };
+if (chosen) {
+  config.notifyTarget = chosen;
+}
 writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+
+if (platforms.length > 0) {
+  process.stdout.write(`OK delivery targets: ${platforms.join(', ')}\n`);
+}
+process.stdout.write(
+  chosen
+    ? `OK notify_target: ${chosen}\n`
+    : 'WARN no delivery targets discovered; notify_target left unset (digest-only)\n',
+);
 NODE
   say "OK wrote Keryx config: $CONFIG_PATH"
 }

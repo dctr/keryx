@@ -49,6 +49,9 @@ describe('keryx setup script', () => {
     expect(stdout).toContain('would enable Hermes plugin keryx');
     expect(stdout).toContain('would install Keryx collector creator bundle');
     expect(stdout).toContain('would write Keryx config');
+    expect(stdout).toContain(
+      'would list delivery targets via hermes send --list --json and store the chosen notify_target',
+    );
     expect(stdout).toContain('would run hermes keryx doctor');
     expect(stdout).not.toContain('would install bundled Keryx skills');
     expect(existsSync(join(harness.hermesHome, 'plugins', 'keryx'))).toBe(false);
@@ -80,6 +83,7 @@ describe('keryx setup script', () => {
       board: 'keryx',
       defaultAssignee: 'default',
       hermesBin: 'hermes',
+      notifyTarget: 'telegram',
     });
     for (const field of ['pollIntervalMs', 'defaultDeliveryTarget', 'localOnly', 'host', 'port']) {
       expect(field in config, `setup config should not write removed field ${field}`).toBe(false);
@@ -89,7 +93,7 @@ describe('keryx setup script', () => {
     expect(calls).toContain(`${harness.hermesHome}|kanban boards create keryx --name Keryx`);
     expect(calls).toContain(`${harness.hermesHome}|plugins enable keryx`);
     expect(calls).toContain(`${harness.hermesHome}|keryx doctor`);
-    expect(calls).not.toContain('send --list --json');
+    expect(calls).toContain(`${harness.hermesHome}|send --list --json`);
     expect(calls).not.toMatch(/\bcron\s+create\b|\bcronjob\s+create\b|\bcreate\s+cron\b/i);
   });
 
@@ -286,7 +290,33 @@ skills:
     expect(stderr).toBe('');
     expect(stdout).toContain('OK wrote Keryx config');
     const config = JSON.parse(readFileSync(harness.configPath, 'utf8')) as Record<string, unknown>;
-    expect(config).toEqual({ board: 'keryx', defaultAssignee: 'default', hermesBin: 'hermes' });
+    expect(config).toEqual({ board: 'keryx', defaultAssignee: 'default', hermesBin: 'hermes', notifyTarget: 'telegram' });
+  });
+
+  it('selects and stores notify_target from the discovered delivery targets', async () => {
+    const harness = createHarness();
+
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome], harness);
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('OK notify_target: telegram');
+    const config = JSON.parse(readFileSync(harness.configPath, 'utf8')) as Record<string, unknown>;
+    expect(config.notifyTarget).toBe('telegram');
+    expect(readLog(harness)).toContain(`${harness.hermesHome}|send --list --json`);
+  });
+
+  it('honors an explicit KERYX_NOTIFY_TARGET override when storing notify_target', async () => {
+    const harness = createHarness();
+
+    const { stdout, stderr } = await runSetup(['--hermes-home', harness.hermesHome], {
+      ...harness,
+      env: { ...harness.env, KERYX_NOTIFY_TARGET: 'telegram:293041098' },
+    });
+
+    expect(stderr).toBe('');
+    expect(stdout).toContain('OK notify_target: telegram:293041098');
+    const config = JSON.parse(readFileSync(harness.configPath, 'utf8')) as Record<string, unknown>;
+    expect(config.notifyTarget).toBe('telegram:293041098');
   });
 
   it('keeps an existing config without --force when non-interactive', async () => {
@@ -321,7 +351,7 @@ skills:
     expect(stderr).toBe('');
     expect(stdout).toContain('OK wrote Keryx config');
     const config = JSON.parse(readFileSync(harness.configPath, 'utf8')) as Record<string, unknown>;
-    expect(config).toEqual({ board: 'keryx', defaultAssignee: 'default', hermesBin: 'hermes' });
+    expect(config).toEqual({ board: 'keryx', defaultAssignee: 'default', hermesBin: 'hermes', notifyTarget: 'telegram' });
   });
 
   it('reports it would keep an existing config in dry-run without --force', async () => {
