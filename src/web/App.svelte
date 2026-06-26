@@ -336,7 +336,7 @@
       {#if lastUpdated}
         <small>Updated {formatDateTime(lastUpdated.toISOString())}</small>
       {:else}
-        <small>Polling every 30s</small>
+        <small>Polling every {Math.round(pollIntervalMs() / 1000)}s</small>
       {/if}
     </div>
   </header>
