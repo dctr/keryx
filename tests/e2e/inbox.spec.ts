@@ -137,6 +137,18 @@ test('inspects policy + metrics panels and records escalation regret', async ({ 
   await expect(rule).toContainText('email:newsletter-unsubscribe');
   await expect(rule).toContainText('Active');
   await expect(rule).toContainText('trusted');
+  await expect(page.getByTestId('policy-track-r-001')).toContainText('approvals since reset 5');
+  await expect(page.getByTestId('policy-track-r-001')).toContainText('overrides since reset 0');
+  await expect(page.getByTestId('policy-track-r-001')).toContainText('latest reset dismissal');
+
+  await policyPanel.getByTestId('policy-scan-preview').click();
+  await expect(page.getByTestId('policy-scan-result')).toContainText('OK policy scan preview: no proposals for keryx-email');
+  await policyPanel.getByTestId('policy-scan-apply').click();
+  await expect(page.getByTestId('policy-scan-result')).toContainText('OK policy scan created 1 proposal card(s) for keryx-email');
+  expect(api.scanRequests).toEqual([
+    { collector: 'keryx-email', body: { preview: true } },
+    { collector: 'keryx-email', body: { preview: false } },
+  ]);
 
   await page.getByTestId('revoke-rule-r-001').click();
   expect(api.revokeRequests).toEqual([{ collector: 'keryx-email', body: { rule_id: 'r-001' } }]);
@@ -172,6 +184,7 @@ async function mockKeryxApi(page: Page) {
   const dismissRequests: Array<{ taskId: string; body: unknown }> = [];
   const regretRequests: Array<{ taskId: string; body: unknown }> = [];
   const revokeRequests: Array<{ collector: string; body: unknown }> = [];
+  const scanRequests: Array<{ collector: string; body: unknown }> = [];
   const undoRequests: string[] = [];
   const markReviewedRequests: string[] = [];
   let taskFetches = 0;
@@ -277,8 +290,8 @@ async function mockKeryxApi(page: Page) {
     });
   });
 
-  // Register the more specific revoke route before the generic policy GET so Playwright
-  // (which matches most-recently-registered first) routes /revoke to its own handler.
+  // Register generic policy GET first; Playwright matches most-recently-registered first,
+  // so specific /revoke and /scan handlers are declared below and take precedence.
   await page.route('**/api/policy/*', async (route) => {
     const collector = route.request().url().match(/\/api\/policy\/([^/]+)$/)?.[1] ?? 'unknown';
     await route.fulfill({
@@ -302,7 +315,16 @@ async function mockKeryxApi(page: Page) {
           },
         ],
         track_record: {
-          'email:newsletter-unsubscribe': { approved: 5, overridden: 0, dismissed: 1, regret: 0, band: 'trusted' },
+          'email:newsletter-unsubscribe': {
+            approved: 5,
+            overridden: 0,
+            approved_since_reset: 5,
+            overridden_since_reset: 0,
+            dismissed: 1,
+            regret: 0,
+            latest_reset: { kind: 'dismissal', at: '2026-06-26T10:30:00.000Z' },
+            band: 'trusted',
+          },
         },
       }),
     });
@@ -315,6 +337,22 @@ async function mockKeryxApi(page: Page) {
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({ ok: true, task_id: 't_revoke', status: 'blocked', action: 'created' }),
+    });
+  });
+
+  await page.route('**/api/policy/*/scan', async (route) => {
+    const collector = route.request().url().match(/\/api\/policy\/([^/]+)\/scan$/)?.[1] ?? 'unknown';
+    const body = route.request().postDataJSON() as unknown;
+    scanRequests.push({ collector, body });
+    const preview = typeof body === 'object' && body !== null && (body as { preview?: unknown }).preview === true;
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        output: preview
+          ? `OK policy scan preview: no proposals for ${collector}`
+          : `OK policy scan created 1 proposal card(s) for ${collector}`,
+      }),
     });
   });
 
@@ -349,6 +387,7 @@ async function mockKeryxApi(page: Page) {
     dismissRequests,
     regretRequests,
     revokeRequests,
+    scanRequests,
     undoRequests,
     markReviewedRequests,
     get taskFetches() {

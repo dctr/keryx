@@ -5,7 +5,7 @@ import type { ActionItem } from '../../schemas/actionItem';
 import type { CommandResult } from '../output';
 import { fail, json, ok } from '../output';
 import { normaliseTaskStatus, type CommandContext, stringFlag, validateTaskIdArgument } from '../shared';
-import { buildExecutionDecision, buildDismissalDecision } from '../builders';
+import { buildCorrection, buildExecutionDecision, buildDismissalDecision } from '../builders';
 
 function dismissResult(taskId: string, status: string, action: string, actionItem: ActionItem) {
   return {
@@ -70,18 +70,34 @@ export async function executeCard(ctx: CommandContext): Promise<CommandResult> {
     return fail(`FAIL cannot execute ${task.id} from status ${status}`);
   }
 
+  const feedback = stringFlag(parsed, 'feedback') ?? null;
   await adapter.commentTask(
     task.id,
     JSON.stringify(
       buildExecutionDecision({
         selectedOptionId: selectedOption.id,
-        userFeedback: stringFlag(parsed, 'feedback') ?? null,
+        userFeedback: feedback,
         approvedBy: 'User',
         approvedVia: 'keryx-web',
         now,
       }),
     ),
   );
+  if (feedback) {
+    await adapter.commentTask(
+      task.id,
+      JSON.stringify(
+        buildCorrection({
+          actionItem: body.actionItem,
+          kind: 'approval_feedback',
+          note: feedback,
+          recordedBy: 'User',
+          recordedVia: 'keryx-web',
+          now,
+        }),
+      ),
+    );
+  }
   await adapter.promoteTask(task.id, 'approved from Keryx');
 
   const shouldDispatch = parsed.flags.get('dispatch') === true;
@@ -132,18 +148,34 @@ export async function dismissCard(ctx: CommandContext): Promise<CommandResult> {
     return fail(`FAIL cannot dismiss ${task.id} from status ${status}`);
   }
 
+  const reason = stringFlag(parsed, 'reason') ?? null;
   await adapter.commentTask(
     task.id,
     JSON.stringify(
       buildDismissalDecision({
         actionItem: body.actionItem,
-        reason: stringFlag(parsed, 'reason') ?? null,
+        reason,
         dismissedBy: 'User',
         dismissedVia: 'keryx-web',
         now,
       }),
     ),
   );
+  if (reason) {
+    await adapter.commentTask(
+      task.id,
+      JSON.stringify(
+        buildCorrection({
+          actionItem: body.actionItem,
+          kind: 'rejection_feedback',
+          note: reason,
+          recordedBy: 'User',
+          recordedVia: 'keryx-web',
+          now,
+        }),
+      ),
+    );
+  }
   await adapter.archiveTask(task.id);
 
   return ok(json(dismissResult(task.id, 'archived', 'archived', body.actionItem)));

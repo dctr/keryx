@@ -30,6 +30,7 @@ import {
   validateOutcomeCommand,
   validatePolicyCommand,
   validateDismissalCommand,
+  validateCorrectionCommand,
 } from './commands/validate';
 
 import {
@@ -64,7 +65,7 @@ Read-only commands:
   show <task_id>                 Show a Keryx Kanban card and validate its JSON body
   cron-status                    Summarise keryx-* collector cron jobs
   delivery-targets [--json]      List Hermes delivery targets
-  schema <action-item|execution-decision|dismissal-decision|policy-decision|outcome|policy|notification|regret|collector-state>
+  schema <action-item|execution-decision|dismissal-decision|policy-decision|outcome|policy|notification|regret|collector-state|correction>
                                   Print a canonical Keryx JSON schema
   template-card [--source <source>] [--collector <collector>]
                                   Print a schema-valid action-item template
@@ -75,6 +76,7 @@ Read-only commands:
   validate-outcome <file>        Validate an outcome JSON comment body
   validate-policy <file>         Validate a collector policy JSON document
   validate-dismissal <file>      Validate a dismissal-decision JSON comment body
+  validate-correction <file>     Validate a correction JSON comment body
 
 Mutating commands:
   create-card <file>              Validate and create a blocked Keryx Kanban card
@@ -99,6 +101,10 @@ Mutating commands:
   policy propose <file>           Create a human-approval card that writes a proposed policy rule
   policy revoke <collector> --rule <id>
                                   Create a human-approval card that removes an existing policy rule
+  policy scan <collector> [--preview] [--json]
+                                  Scan track record + policy and create graduation/demotion proposal cards
+  policy apply <task_id>
+                                  Deterministically apply an approved policy proposal card to references/policy.json
 
 Global options:
   --help, -h                     Show this help
@@ -143,6 +149,8 @@ export async function runOpsctl(argv: string[], options: RunOpsctlOptions = {}):
         return validatePolicyCommand(parsed.positionals[0]);
       case 'validate-dismissal':
         return validateDismissalCommand(parsed.positionals[0]);
+      case 'validate-correction':
+        return validateCorrectionCommand(parsed.positionals[0]);
       case 'create-card':
         return await createCard(ctx);
       case 'auto-execute':

@@ -27,7 +27,7 @@ describe('user-facing README', () => {
     }
   });
 
-  it('documents the v005 silent/digest/policy/metrics command surface', () => {
+  it('documents the v007 silent/policy-learning/reporting command surface', () => {
     const readme = readReadme();
 
     for (const command of [
@@ -37,14 +37,22 @@ describe('user-facing README', () => {
       'hermes keryx default-resolve',
       'hermes keryx metrics',
       'hermes keryx regret',
+      'hermes keryx policy scan <collector>',
+      'hermes keryx policy apply <task_id>',
       'hermes keryx policy show',
-      'hermes keryx policy propose',
-      'hermes keryx policy revoke',
+      'hermes keryx schema correction',
+      'hermes keryx validate-correction',
       'validate-policy-decision',
       'validate-outcome',
+      'review-log inspection',
     ]) {
       expect(readme, `README should document ${command}`).toContain(command);
     }
+
+    expect(readme).toContain('exact `(collector, class)` scope');
+    expect(readme).toContain('rejection, dismissal, or silent regret');
+    expect(readme).toContain('deterministic apply path');
+    expect(readme).toContain('Generated email collectors follow the same rule');
   });
 
   it('starts with the temporary Hermes default-assignee warning', () => {

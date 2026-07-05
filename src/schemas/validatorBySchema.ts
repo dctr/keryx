@@ -7,6 +7,7 @@
 // actually inspect are listed here.
 
 import type { ValidationResult } from './validate';
+import { validateCorrection } from './correction';
 import { validateDismissalDecision } from './dismissalDecision';
 import { validateExecutionDecision } from './executionDecision';
 import { validateOutcome } from './outcome';
@@ -16,6 +17,7 @@ import { validateRegret } from './regret';
 type AnyValidator = (body: unknown) => ValidationResult<unknown>;
 
 const VALIDATOR_MAP: Record<string, AnyValidator> = {
+  'keryx.correction.v1': validateCorrection,
   'keryx.dismissal_decision.v1': validateDismissalDecision,
   'keryx.execution_decision.v1': validateExecutionDecision,
   'keryx.outcome.v1': validateOutcome,

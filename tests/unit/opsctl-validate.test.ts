@@ -49,6 +49,19 @@ const validDismissal = {
   dismissed_at: '2026-06-25T08:00:00+10:00',
 };
 
+const validCorrection = {
+  schema: 'keryx.correction.v1',
+  collector: 'keryx-facebook',
+  class: 'facebook:group_post_ack',
+  external_id: 'facebook:group:42',
+  idempotency_key: 'keryx:facebook:group:42',
+  kind: 'approval_feedback',
+  note: 'Keep these posts in digest-only mode.',
+  recorded_by: 'User',
+  recorded_via: 'keryx-web',
+  recorded_at: '2026-06-25T08:00:00+10:00',
+};
+
 describe('opsctl validate-* commands for machine-written bodies', () => {
   const cases = [
     {
@@ -74,6 +87,12 @@ describe('opsctl validate-* commands for machine-written bodies', () => {
       valid: validDismissal,
       requiredField: 'dismissed_external_id',
       okFragment: 'OK valid dismissal decision',
+    },
+    {
+      command: 'validate-correction',
+      valid: validCorrection,
+      requiredField: 'kind',
+      okFragment: 'OK valid correction',
     },
   ] as const;
 

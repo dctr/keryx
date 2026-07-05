@@ -28,12 +28,9 @@ export const DEFAULT_BAND_THRESHOLDS: BandThresholds = {
 };
 
 export function deriveBand(tr: TrackRecord, t: BandThresholds = DEFAULT_BAND_THRESHOLDS): Band {
-  // Any recent regret caps the band at warming and otherwise pulls it down: a
-  // class the user has flagged as a mistake cannot be trusted for silent runs.
-  if (tr.regret > 0) {
-    return tr.approved >= t.warmingApprovals ? 'warming' : 'cold';
-  }
-
+  // `aggregateTrackRecord` now epoch-filters approvals/overrides to events strictly
+  // after the latest reset event (dismissal/regret/correction). `deriveBand` assumes
+  // that invariant and only evaluates the effective post-reset counts.
   const total = tr.approved + tr.overridden;
   const overrideRate = total === 0 ? 1 : tr.overridden / total;
 

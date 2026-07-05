@@ -3,6 +3,7 @@
 // can supply their own approved_by / approved_via without duplicating the schema shape.
 
 import type { ActionItem, ActionOption } from '../schemas/actionItem';
+import type { CorrectionKind } from '../schemas/correction';
 import type { PolicyDecision } from '../schemas/policyDecision';
 
 // ---------------------------------------------------------------------------
@@ -50,6 +51,34 @@ export function buildDismissalDecision(params: BuildDismissalDecisionParams) {
     dismissed_by: params.dismissedBy,
     dismissed_via: params.dismissedVia,
     dismissed_at: params.now().toISOString(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Correction feedback (keryx.correction.v1)
+// ---------------------------------------------------------------------------
+
+export interface BuildCorrectionParams {
+  actionItem: ActionItem;
+  kind: CorrectionKind;
+  note: string;
+  recordedBy: string;
+  recordedVia: string;
+  now: () => Date;
+}
+
+export function buildCorrection(params: BuildCorrectionParams) {
+  return {
+    schema: 'keryx.correction.v1',
+    collector: params.actionItem.collector,
+    class: params.actionItem.class,
+    external_id: params.actionItem.external_id,
+    idempotency_key: params.actionItem.idempotency_key,
+    kind: params.kind,
+    note: params.note,
+    recorded_by: params.recordedBy,
+    recorded_via: params.recordedVia,
+    recorded_at: params.now().toISOString(),
   };
 }
 

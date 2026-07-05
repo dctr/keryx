@@ -9,6 +9,7 @@ import {
   emptyPolicy,
   loadPolicy,
   resolvePolicyPath,
+  writePolicy,
 } from '../../src/policy/policyStore';
 import type { Policy } from '../../src/schemas/policy';
 
@@ -16,7 +17,7 @@ function tempHome(): string {
   return mkdtempSync(join(tmpdir(), 'keryx-policy-home-'));
 }
 
-function writePolicy(hermesHome: string, collector: string, policy: unknown): string {
+function seedPolicy(hermesHome: string, collector: string, policy: unknown): string {
   const source = collector.startsWith('keryx-') ? collector.slice('keryx-'.length) : collector;
   const dir = join(hermesHome, 'skills', `keryx-collector-${source}`, 'references');
   mkdirSync(dir, { recursive: true });
@@ -82,9 +83,24 @@ describe('policy store', () => {
     expect(emptyPolicy('email').collector).toBe('keryx-email');
   });
 
+  it('writes a schema-valid policy atomically and can load it back', () => {
+    const home = tempHome();
+    const result = writePolicy(samplePolicy, { hermesHome: home });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.path).toBe(resolvePolicyPath('keryx-email', { hermesHome: home }));
+      const loaded = loadPolicy('keryx-email', { hermesHome: home });
+      expect(loaded.ok).toBe(true);
+      if (loaded.ok) {
+        expect(loaded.policy.version).toBe(samplePolicy.version);
+        expect(loaded.policy.rules[0].id).toBe('r-001');
+      }
+    }
+  });
+
   it('loads and validates an existing policy file', () => {
     const home = tempHome();
-    writePolicy(home, 'keryx-email', samplePolicy);
+    seedPolicy(home, 'keryx-email', samplePolicy);
 
     const result = loadPolicy('keryx-email', { hermesHome: home });
     expect(result.ok).toBe(true);
@@ -108,7 +124,7 @@ describe('policy store', () => {
 
   it('surfaces a validation error rather than silently dropping a malformed policy file', () => {
     const home = tempHome();
-    writePolicy(home, 'keryx-email', { schema: 'keryx.policy.v1', collector: 'keryx-email' });
+    seedPolicy(home, 'keryx-email', { schema: 'keryx.policy.v1', collector: 'keryx-email' });
 
     const result = loadPolicy('keryx-email', { hermesHome: home });
     expect(result.ok).toBe(false);

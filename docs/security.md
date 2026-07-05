@@ -12,7 +12,9 @@ Workers re-query source systems before external side effects and act only from t
 
 ## Confidence is derived, never declared
 
-A card's **confidence** band for its `(collector, class)` is derived from the user's own approval / override / regret history recorded in the Kanban audit trail. It is never a card field and never set by a collector, so injected source content cannot manufacture trust or push a card toward silent execution. A collector supplies only honest risk evidence (`reversibility`, `blast_radius`, optional `absolute_floor`) and an open `class` key; the disposition function does the rest.
+A card's **confidence** band for its exact `(collector, class)` scope is derived from the user's own approval / override / regret history recorded in the Kanban audit trail. It is never a card field and never set by a collector, so injected source content cannot manufacture trust or push a card toward silent execution. A collector supplies only honest risk evidence (`reversibility`, `blast_radius`, optional `absolute_floor`) and an open `class` key; the disposition function does the rest.
+
+Confidence uses cold-reset epochs: dismissal, rejection, or silent-regret events for a `(collector, class)` reset that scope to `cold`; prior approvals no longer sustain silent eligibility, and confidence rebuilds only from events after the latest reset.
 
 ## No raw event persistence
 
@@ -30,6 +32,10 @@ The worker validates that the selected option exists in the `keryx.action_item.v
 ## Policy is the trust gate for silent execution
 
 For any state-changing silent action, **policy is the trust gate**. A state-changing option may execute silently only when its `class` has climbed the graduation ladder (cold → warming → trusted) and a human has approved an `active` `keryx.policy.v1` rule whose gate bounds (`min_reversibility`, `max_blast_radius`, `min_confidence`) cover the option. Every rule is human-approved through a blocked suggestion card created by `hermes keryx policy propose`; a `shadow` rule never authorizes silent execution, it only computes what it *would have* done. Workers and collectors propose promotions and demotions but never self-grant them.
+
+Policy evolution uses deterministic commands, not manual edits: `hermes keryx policy scan <collector> [--preview]` creates/preview promotion and demotion proposals from the derived history, and `hermes keryx policy apply <task_id>` applies an approved proposal to `references/policy.json`.
+
+Text feedback is advisory evidence, not authority: `keryx.correction.v1` comments are inspected with `hermes keryx schema correction` and validated with `hermes keryx validate-correction <file>`.
 
 ## read_only monitors are silent by design
 

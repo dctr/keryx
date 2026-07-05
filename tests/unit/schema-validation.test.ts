@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { validateActionItem } from '../../src/schemas/actionItem';
 import { validateCollectorState } from '../../src/schemas/collectorState';
+import { validateCorrection } from '../../src/schemas/correction';
 import { validateDismissalDecision } from '../../src/schemas/dismissalDecision';
 import { validateExecutionDecision } from '../../src/schemas/executionDecision';
 import { validateNotification } from '../../src/schemas/notification';
@@ -11,6 +12,7 @@ import { validateRegret } from '../../src/schemas/regret';
 import { sampleActionItem } from '../helpers/sampleActionItem';
 import type { ActionItem } from '../../src/schemas/actionItem';
 import type { CollectorState } from '../../src/schemas/collectorState';
+import type { Correction } from '../../src/schemas/correction';
 import type { DismissalDecision } from '../../src/schemas/dismissalDecision';
 import type { ExecutionDecision } from '../../src/schemas/executionDecision';
 import type { Notification } from '../../src/schemas/notification';
@@ -305,6 +307,19 @@ const validRegret: Regret = {
   recorded_at: '2026-05-31T12:34:56.000Z',
 };
 
+const validCorrection: Correction = {
+  schema: 'keryx.correction.v1',
+  collector: 'keryx-email',
+  class: 'email:newsletter_unsubscribe_trash',
+  external_id: 'imap:INBOX:123',
+  idempotency_key: 'keryx:email:imap:INBOX:123',
+  kind: 'rejection_feedback',
+  note: 'Do not unsubscribe from professional association newsletters.',
+  recorded_by: 'User',
+  recorded_via: 'keryx-web',
+  recorded_at: '2026-07-05T00:00:00.000Z',
+};
+
 describe('regret.v1 validation', () => {
   it('accepts a known-good regret signal', () => {
     expect(validateRegret(validRegret)).toEqual({ ok: true, value: validRegret });
@@ -316,5 +331,19 @@ describe('regret.v1 validation', () => {
 
   it('rejects an unknown regret kind', () => {
     expect(validateRegret({ ...validRegret, kind: 'mild_annoyance' }).ok).toBe(false);
+  });
+});
+
+describe('correction.v1 validation', () => {
+  it('accepts a known-good correction signal', () => {
+    expect(validateCorrection(validCorrection)).toEqual({ ok: true, value: validCorrection });
+  });
+
+  it('rejects an unknown correction kind', () => {
+    expect(validateCorrection({ ...validCorrection, kind: 'friction_feedback' }).ok).toBe(false);
+  });
+
+  it('rejects an empty correction note', () => {
+    expect(validateCorrection({ ...validCorrection, note: '' }).ok).toBe(false);
   });
 });

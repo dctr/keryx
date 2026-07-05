@@ -36,10 +36,10 @@ describe('opsctl dismiss', () => {
       env: {},
     });
 
-    const commentRequest = runner.mock.calls[1][0];
-    expect(commentRequest.args.slice(0, 5)).toEqual(['kanban', '--board', 'keryx', 'comment', 't_dismiss']);
-    expect(commentRequest.args).toHaveLength(6);
-    expect(JSON.parse(commentRequest.args[5])).toEqual({
+    const decisionCommentRequest = runner.mock.calls[1][0];
+    expect(decisionCommentRequest.args.slice(0, 5)).toEqual(['kanban', '--board', 'keryx', 'comment', 't_dismiss']);
+    expect(decisionCommentRequest.args).toHaveLength(6);
+    expect(JSON.parse(decisionCommentRequest.args[5])).toEqual({
       schema: 'keryx.dismissal_decision.v1',
       dismissal_scope: 'exact_item',
       reason: 'No longer relevant',
@@ -49,11 +49,41 @@ describe('opsctl dismiss', () => {
       dismissed_via: 'keryx-web',
       dismissed_at: '2026-05-31T12:34:56.000Z',
     });
-    expect(runner).toHaveBeenNthCalledWith(3, {
+
+    const correctionCommentRequest = runner.mock.calls[2][0];
+    expect(correctionCommentRequest.args.slice(0, 5)).toEqual(['kanban', '--board', 'keryx', 'comment', 't_dismiss']);
+    expect(correctionCommentRequest.args).toHaveLength(6);
+    expect(JSON.parse(correctionCommentRequest.args[5])).toEqual({
+      schema: 'keryx.correction.v1',
+      collector: 'keryx-email',
+      class: 'email:support-request',
+      external_id: 'support-inbox:INBOX:35680',
+      idempotency_key: 'keryx:email:support-inbox:INBOX:35680',
+      kind: 'rejection_feedback',
+      note: 'No longer relevant',
+      recorded_by: 'User',
+      recorded_via: 'keryx-web',
+      recorded_at: '2026-05-31T12:34:56.000Z',
+    });
+    expect(runner).toHaveBeenNthCalledWith(4, {
       bin: 'hermes',
       args: ['kanban', '--board', 'keryx', 'archive', 't_dismiss'],
       env: {},
     });
+  });
+
+  it('does not append a correction comment when reason is omitted', async () => {
+    const runner = createRunner(task({ id: 't_dismiss', status: 'blocked' }));
+
+    const result = await runOpsctl(['dismiss', 't_dismiss'], {
+      config: loadConfig({ env: {}, configPath: null }),
+      hermesRunner: runner,
+      now: () => dismissedAt,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.mock.calls.map((call) => call[0].args[3])).toEqual(['show', 'comment', 'archive']);
+    expect(JSON.parse(runner.mock.calls[1][0].args[5])).toMatchObject({ schema: 'keryx.dismissal_decision.v1', reason: null });
   });
 
   it.each<[KanbanStatus, string]>([

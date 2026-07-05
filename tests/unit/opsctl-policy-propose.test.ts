@@ -77,6 +77,7 @@ describe('opsctl policy propose', () => {
       const option = validation.value.options[0];
       expect(option.blast_radius).toBe('self');
       expect(option.reversibility).toBe('reversible');
+      expect(option.execution_prompt).toContain('hermes keryx policy apply <task_id>');
     }
   });
 

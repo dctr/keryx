@@ -144,11 +144,130 @@ describe('opsctl policy show', () => {
       collector: string;
       exists: boolean;
       rules: Array<{ id: string; state: string }>;
-      track_record: Record<string, { band: string }>;
+      track_record: Record<
+        string,
+        {
+          band: string;
+          approved_since_reset: number;
+          overridden_since_reset: number;
+          latest_reset: { kind: 'dismissal' | 'regret'; at: string | null } | null;
+        }
+      >;
     };
     expect(parsed.collector).toBe('keryx-email');
     expect(parsed.exists).toBe(true);
     expect(parsed.rules.map((rule) => rule.id)).toEqual(['r-001', 'r-002']);
+    expect(parsed.track_record['email:newsletter-unsubscribe']).toMatchObject({
+      band: 'cold',
+      approved_since_reset: 0,
+      overridden_since_reset: 0,
+      latest_reset: null,
+    });
+  });
+
+  it('derives track record for the selected collector only when classes overlap', async () => {
+    const home = homeWithPolicy(policyWithRule);
+    const tasks: KanbanTask[] = [
+      {
+        id: 't1',
+        status: 'done',
+        body: JSON.stringify(
+          sampleActionItem({
+            collector: 'keryx-email',
+            class: 'email:newsletter-unsubscribe',
+            options: [
+              {
+                id: 'unsubscribe',
+                label: 'Unsubscribe',
+                requires_input: false,
+                input_hint: null,
+                delivery: null,
+                reversibility: 'reversible',
+                blast_radius: 'self',
+                undo_prompt: 'Resubscribe.',
+                execution_prompt: 'Unsubscribe from the newsletter.',
+              },
+            ],
+            ui: { primary_option_id: 'unsubscribe', display_group: 'Monitored' },
+          }),
+        ),
+        comments: [
+          {
+            body: JSON.stringify({
+              schema: 'keryx.execution_decision.v1',
+              selected_option_id: 'unsubscribe',
+              user_feedback: null,
+              approved_by: 'User',
+              approved_via: 'keryx-web',
+              approved_at: '2026-06-25T08:00:00+10:00',
+            }),
+          },
+        ],
+      },
+      {
+        id: 't2',
+        status: 'done',
+        body: JSON.stringify(
+          sampleActionItem({
+            collector: 'keryx-email-b',
+            class: 'email:newsletter-unsubscribe',
+            options: [
+              {
+                id: 'unsubscribe',
+                label: 'Unsubscribe',
+                requires_input: false,
+                input_hint: null,
+                delivery: null,
+                reversibility: 'reversible',
+                blast_radius: 'self',
+                undo_prompt: 'Resubscribe.',
+                execution_prompt: 'Unsubscribe from the newsletter.',
+              },
+            ],
+            ui: { primary_option_id: 'unsubscribe', display_group: 'Monitored' },
+          }),
+        ),
+        comments: [
+          {
+            body: JSON.stringify({
+              schema: 'keryx.dismissal_decision.v1',
+              dismissal_scope: 'exact_item',
+              reason: null,
+              dismissed_external_id: 'inbox:abc',
+              dismissed_idempotency_key: 'keryx:email:inbox:abc',
+              dismissed_by: 'User',
+              dismissed_via: 'keryx-web',
+              dismissed_at: '2026-06-25T08:05:00+10:00',
+            }),
+          },
+        ],
+      },
+    ];
+
+    const result = await runOpsctl(['policy', 'show', 'keryx-email', '--json'], {
+      config: loadConfig({ env: {}, configPath: null, overrides: { hermesHome: home } }),
+      hermesRunner: listRunner(tasks),
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      track_record: Record<
+        string,
+        {
+          approved: number;
+          approved_since_reset: number;
+          dismissed: number;
+          latest_reset: { kind: 'dismissal' | 'regret'; at: string | null } | null;
+        }
+      >;
+    };
+
+    expect(parsed.track_record['email:newsletter-unsubscribe']).toMatchObject({
+      approved: 1,
+      approved_since_reset: 1,
+      dismissed: 0,
+      latest_reset: null,
+    });
   });
 
   it('reports an absent policy as empty rather than failing', async () => {
@@ -243,7 +362,7 @@ describe('opsctl policy revoke', () => {
       class: 'policy:rule-revocation',
     });
     expect(body.idempotency_key).toBe('keryx:policy-revocation:keryx-email:r-001');
-    expect(body.options[0].execution_prompt).toContain('r-001');
+    expect(body.options[0].execution_prompt).toContain('hermes keryx policy apply <task_id>');
   });
 
   it('fails when the rule id is not in the collector policy', async () => {

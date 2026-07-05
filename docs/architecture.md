@@ -22,7 +22,7 @@ keryx:keryx-collector-creator
 
 ## The three dispositions
 
-Every actionable card resolves to exactly one **disposition**, derived by a deterministic function (`src/policy/disposition.ts`) from each option's risk axes (`reversibility`, `blast_radius`, any `absolute_floor`), the user's derived **confidence** band for the card's `(collector, class)`, urgency, and the collector's human-approved policy. The disposition is never declared by the card or by source content — a card may carry an advisory `proposed_disposition`, but the system can only downgrade it, never upgrade to silent or interrupt.
+Every actionable card resolves to exactly one **disposition**, derived by a deterministic function (`src/policy/disposition.ts`) from each option's risk axes (`reversibility`, `blast_radius`, any `absolute_floor`), the user's derived **confidence** band for the card's exact `(collector, class)` scope, urgency, and the collector's human-approved policy. The disposition is never declared by the card or by source content — a card may carry an advisory `proposed_disposition`, but the system can only downgrade it, never upgrade to silent or interrupt.
 
 - **Silent** — the class has graduated and a human-approved policy rule covers the option, or the option is `read_only` (silent by design, since it mutates nothing). The card is created `ready` with a synthetic `keryx.policy_decision.v1` comment; a worker executes and writes a structured `keryx.outcome.v1` comment; the card lands in the **review log**. Outcomes are reported non-urgently through the digest by default (`push` only when the result itself is time-sensitive; `log_only` to pull from the review log).
 - **Review** (the default fallback) — draft, gather, or propose without committing. The card is created `blocked` and the user approves an option in the dashboard on their own schedule. Any card whose evidence does not clearly justify silent or interrupt falls back here.
@@ -62,6 +62,14 @@ rm -f /tmp/keryx-card.json
 On the review path, `hermes keryx execute` records a trusted `keryx.execution_decision.v1` comment with the selected option and optional feedback (the direct repository fallback is `./bin/opsctl execute`); on the silent path, `create-card`/`auto-execute` writes a synthetic `keryx.policy_decision.v1` comment. Both promote the card to `ready` when promotion is appropriate.
 
 Workers read the card, find the latest trusted decision (human execution decision or synthetic policy decision), validate the selected option, re-query source systems when needed, perform only the approved action, and complete the task with a `keryx.outcome.v1` comment. Completed cards form the **review log**, which supports archive-after-read and an honest `hermes keryx undo` / correct path keyed off the executed option's reversibility.
+
+Policy learning and maintenance are deterministic command paths:
+
+- `hermes keryx policy scan <collector> [--preview]` computes graduation/demotion proposals from the derived `(collector, class)` track record and policy state.
+- `hermes keryx policy apply <task_id>` applies an approved policy proposal card deterministically to `references/policy.json` (no manual policy-file edits).
+- `hermes keryx schema correction` and `hermes keryx validate-correction <file>` expose and validate `keryx.correction.v1` feedback comments.
+
+Cold-reset semantics are part of that same loop: dismissal/rejection/regret for a `(collector, class)` resets confidence to `cold`; later approvals rebuild confidence from events after the latest reset.
 
 ## UI/API boundary
 

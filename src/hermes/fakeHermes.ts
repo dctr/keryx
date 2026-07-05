@@ -60,6 +60,10 @@ export function createFakeHermes(options: FakeHermesOptions = {}): FakeHermes {
       return { stdout: 'Archived 1 task.\n', stderr: '', exitCode: 0 };
     }
 
+    if (matches(request.args, ['kanban', '--board']) && request.args[3] === 'complete') {
+      return { stdout: 'Completed 1 task.\n', stderr: '', exitCode: 0 };
+    }
+
     if (matches(request.args, ['kanban', '--board']) && ['promote', 'dispatch'].includes(request.args[3])) {
       return ok({ ok: true });
     }

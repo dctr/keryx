@@ -179,9 +179,12 @@ describe('server API with fake Hermes', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({ ok: true, task_id: 't_execute', status: 'ready', action: 'promoted' });
-      expect(fakeHermes.requests.map((request) => request.args[3])).toEqual(['show', 'comment', 'promote']);
-      const commentArgs = fakeHermes.requests[1].args;
-      expect(JSON.parse(commentArgs[5])).toMatchObject({
+      expect(fakeHermes.requests.map((request) => request.args[3])).toEqual(['show', 'comment', 'comment', 'promote']);
+      const decisionComment = fakeHermes.requests
+        .filter((request) => request.args[3] === 'comment')
+        .map((request) => JSON.parse(request.args[5]) as { schema?: string; selected_option_id?: string; user_feedback?: string })
+        .find((comment) => comment.schema === 'keryx.execution_decision.v1');
+      expect(decisionComment).toMatchObject({
         schema: 'keryx.execution_decision.v1',
         selected_option_id: 'translate_forward_contact_archive',
         user_feedback: 'Please be brief.',
@@ -229,8 +232,12 @@ describe('server API with fake Hermes', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({ ok: true, task_id: 't_dismiss', status: 'archived', action: 'archived' });
-      expect(fakeHermes.requests.map((request) => request.args[3])).toEqual(['show', 'comment', 'archive']);
-      expect(JSON.parse(fakeHermes.requests[1].args[5])).toMatchObject({
+      expect(fakeHermes.requests.map((request) => request.args[3])).toEqual(['show', 'comment', 'comment', 'archive']);
+      const dismissalComment = fakeHermes.requests
+        .filter((request) => request.args[3] === 'comment')
+        .map((request) => JSON.parse(request.args[5]) as { schema?: string; dismissal_scope?: string; reason?: string | null })
+        .find((comment) => comment.schema === 'keryx.dismissal_decision.v1');
+      expect(dismissalComment).toMatchObject({
         schema: 'keryx.dismissal_decision.v1',
         dismissal_scope: 'exact_item',
         reason: 'Not needed.',
@@ -370,10 +377,29 @@ describe('server API with fake Hermes', () => {
 
         expect(response.statusCode).toBe(200);
         expect(response.headers['cache-control']).toBe('no-store');
-        const payload = response.json() as { collector: string; exists: boolean; rules: Array<{ id: string; state: string }> };
+        const payload = response.json() as {
+          collector: string;
+          exists: boolean;
+          rules: Array<{ id: string; state: string }>;
+          track_record: Record<
+            string,
+            {
+              band: string;
+              approved_since_reset: number;
+              overridden_since_reset: number;
+              latest_reset: { kind: 'dismissal' | 'regret'; at: string | null } | null;
+            }
+          >;
+        };
         expect(payload.collector).toBe('keryx-email');
         expect(payload.exists).toBe(true);
         expect(payload.rules.map((rule) => rule.id)).toEqual(['r-001']);
+        expect(payload.track_record['email:newsletter-unsubscribe']).toMatchObject({
+          band: 'cold',
+          approved_since_reset: 0,
+          overridden_since_reset: 0,
+          latest_reset: null,
+        });
       } finally {
         await server.close();
       }
@@ -401,6 +427,58 @@ describe('server API with fake Hermes', () => {
         const body = JSON.parse(createRequest!.args[6]);
         expect(body).toMatchObject({ schema: 'keryx.action_item.v2', class: 'policy:rule-revocation' });
         expect(body.idempotency_key).toBe('keryx:policy-revocation:keryx-email:r-001');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('runs policy scan in preview mode through the API', async () => {
+    const home = homeWithPolicy();
+    try {
+      const fakeHermes = createFakeHermes({ tasks: [] });
+      const server = createServer({
+        config: loadConfig({ env: {}, configPath: null, overrides: { hermesHome: home } }),
+        hermesRunner: fakeHermes.runner,
+      });
+
+      try {
+        const response = await server.inject({ method: 'POST', url: '/api/policy/keryx-email/scan', payload: { preview: true } });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['cache-control']).toBe('no-store');
+        const payload = response.json() as { ok: boolean; output: string };
+        expect(payload.ok).toBe(true);
+        expect(payload.output).toContain('policy scan preview: keryx-email');
+        expect(payload.output).toContain('proposals: 1');
+      } finally {
+        await server.close();
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('runs policy scan proposal creation mode through the API', async () => {
+    const home = homeWithPolicy();
+    try {
+      const fakeHermes = createFakeHermes({ tasks: [] });
+      const server = createServer({
+        config: loadConfig({ env: {}, configPath: null, overrides: { hermesHome: home } }),
+        hermesRunner: fakeHermes.runner,
+      });
+
+      try {
+        const response = await server.inject({ method: 'POST', url: '/api/policy/keryx-email/scan', payload: { preview: false } });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['cache-control']).toBe('no-store');
+        expect(response.json()).toEqual({
+          ok: true,
+          output: 'OK policy scan created 1 proposal card(s) for keryx-email',
+        });
       } finally {
         await server.close();
       }

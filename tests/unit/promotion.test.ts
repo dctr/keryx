@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { computePromotionIntents } from '../../src/policy/promotion';
+import { trackRecordKey } from '../../src/policy/trackRecord';
 import type { TrackRecord } from '../../src/policy/confidence';
 import type { PolicyRule } from '../../src/schemas/policy';
 
@@ -19,7 +20,7 @@ function rule(overrides: Partial<PolicyRule> & Pick<PolicyRule, 'id' | 'class' |
 
 const trusted: TrackRecord = { approved: 14, overridden: 1, dismissed: 0, regret: 0 };
 const warming: TrackRecord = { approved: 5, overridden: 0, dismissed: 0, regret: 0 };
-const trustedWithRegret: TrackRecord = { approved: 14, overridden: 1, dismissed: 0, regret: 1 };
+const coldAfterReset: TrackRecord = { approved: 0, overridden: 0, dismissed: 0, regret: 1 };
 
 describe('computePromotionIntents', () => {
   it('proposes shadow -> active when a shadow rule class reaches trusted', () => {
@@ -63,9 +64,9 @@ describe('computePromotionIntents', () => {
     expect(intents).toEqual([]);
   });
 
-  it('demotes an active rule to shadow when its band falls below trusted', () => {
+  it('revokes an active rule when a reset drops the class to cold', () => {
     const intents = computePromotionIntents(
-      { 'email:unsub': trustedWithRegret },
+      { 'email:unsub': coldAfterReset },
       [rule({ id: 'r-1', class: 'email:unsub', state: 'active' })],
     );
     expect(intents).toHaveLength(1);
@@ -73,10 +74,33 @@ describe('computePromotionIntents', () => {
       kind: 'demote',
       class: 'email:unsub',
       currentState: 'active',
-      targetState: 'shadow',
+      targetState: 'revoked',
       ruleId: 'r-1',
     });
     expect(intents[0].band).not.toBe('trusted');
+  });
+
+  it('revokes active rule for keyed collector/class track records after reset', () => {
+    const key = trackRecordKey('keryx-email', 'email:newsletter');
+    const intents = computePromotionIntents(
+      { [key]: coldAfterReset },
+      [rule({ id: 'r-2', class: 'email:newsletter', state: 'active' })],
+      'keryx-email',
+    );
+
+    expect(intents).toContainEqual(
+      expect.objectContaining({ kind: 'demote', class: 'email:newsletter', band: 'cold', targetState: 'revoked' }),
+    );
+  });
+
+  it('demotes an active rule to shadow when confidence falls to warming', () => {
+    const intents = computePromotionIntents(
+      { 'email:unsub': warming },
+      [rule({ id: 'r-1', class: 'email:unsub', state: 'active' })],
+    );
+    expect(intents).toContainEqual(
+      expect.objectContaining({ kind: 'demote', class: 'email:unsub', band: 'warming', targetState: 'shadow' }),
+    );
   });
 
   it('returns no intents when nothing crosses a threshold', () => {

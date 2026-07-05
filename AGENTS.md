@@ -2,7 +2,7 @@
 
 Keryx is a Node 22+ TypeScript/Svelte/Fastify control surface over Hermes Kanban. It is intentionally thin: Kanban remains the source of truth; Keryx adds schemas, a Hermes plugin named `keryx`, a safe `opsctl` fallback, a local API, a web inbox, and plugin-registered skills.
 
-v005 makes Keryx an attention-allocation surface. Every actionable card resolves to one of three dispositions — **silent**, **review**, or **interrupt** — computed by a deterministic disposition function from per-option risk axes, a confidence band derived from the user's own history, and a human-approved policy store. Silent outcomes are reported through a non-urgent digest; interrupts push through `hermes send`.
+v007 keeps Keryx as an attention-allocation surface. Every actionable card resolves to one of three dispositions — **silent**, **review**, or **interrupt** — computed by a deterministic disposition function from per-option risk axes, a confidence band derived from the user's own history for the exact `(collector, class)` scope, and a human-approved policy store. Silent outcomes are reported through a non-urgent digest; interrupts push through `hermes send`.
 
 ## Commands
 
@@ -24,6 +24,13 @@ npm start               # production-style local server on configured host/port
 ./keryx-setup.sh --dry-run
 hermes keryx doctor     # plugin health check after setup
 ./bin/opsctl doctor     # direct repo fallback health check
+hermes keryx policy scan <collector> --preview   # show proposed policy changes from track record
+hermes keryx policy scan <collector>             # create policy proposal cards
+hermes keryx policy apply <task_id>              # deterministic apply path for approved proposals
+hermes keryx schema correction                   # print correction schema
+hermes keryx validate-correction <file>          # validate a correction payload before posting/importing
+hermes keryx mark-reviewed <task_id>             # archive handled review-log items
+hermes keryx digest --preview                    # preview digest output without sending
 ```
 
 Before committing code changes, run at least:
@@ -58,6 +65,8 @@ Keryx ships no sample collectors folder. Source-specific collectors are authored
 - The Keryx plugin is the Hermes-facing adapter; Keryx remains a thin control surface over Hermes Kanban. Do not add a second task database or bypass Hermes Kanban as the central register. Dispositions, the review log, policy track record, and metrics are all derived from card status, bodies, and comments.
 - Every actionable card resolves to exactly one of three dispositions — `silent`, `review`, or `interrupt` — computed by the deterministic disposition function in `src/policy/disposition.ts`. A card may carry an advisory `proposed_disposition`, but the system can only downgrade it, never upgrade to silent or interrupt.
 - A state-changing option may run silently only when a human-approved `active` rule in the policy store (`src/policy/policyStore.ts`) covers it and the class's confidence band meets the grid floor. `shadow` rules compute what they would have done but never authorize execution.
+- Policy learning is deterministic and command-driven: run `hermes keryx policy scan <collector> [--preview]` to generate proposal cards, and apply approved proposals with `hermes keryx policy apply <task_id>`; do not hand-edit `references/policy.json`.
+- Confidence is scoped to exact `(collector, class)` classes and enforces a cold-reset invariant: rejection, dismissal, or silent-regret resets that scope to `cold`, and confidence rebuilds only from events after the latest reset.
 - `hermes send` (the interrupt push and digest delivery channel) is the one new privilege added in v005. Keep it allowlisted in `src/hermes/adapter.ts` alongside the existing narrow surface; do not add generic shell/Hermes passthroughs.
 - Keryx action cards must validate as `keryx.action_item.v2`; human execution decisions must validate as `keryx.execution_decision.v1` and synthetic silent decisions as `keryx.policy_decision.v1`.
 - Route UI mutations through the same command logic as `opsctl` where practical; keep Kanban mutation rules centralised.

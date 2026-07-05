@@ -181,6 +181,32 @@ export function registerApiRoutes(server: FastifyInstance, options: RegisterApiR
     return sendCommandResult(reply, result);
   });
 
+  // Policy scan (v007 §5.2): preview or create deterministic graduation/demotion proposals.
+  server.post<{ Params: { collector: string } }>('/api/policy/:collector/scan', async (request, reply) => {
+    noStore(reply);
+    const check = validateCollectorName(request.params.collector);
+    if (!check.ok) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', check.message);
+    }
+
+    const body = requestBodyObject(request.body);
+    if (!body.ok) {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', 'request body must be a JSON object');
+    }
+
+    if (typeof body.value.preview !== 'boolean') {
+      return sendApiError(reply, 400, 'VALIDATION_ERROR', 'preview must be a boolean');
+    }
+
+    const argv = ['policy', 'scan', request.params.collector];
+    if (body.value.preview) {
+      argv.push('--preview');
+    }
+
+    const result = await options.runOpsctl(argv, buildOpsctlOptions(options));
+    return sendCommandResult(reply, result);
+  });
+
   // Attention-economics metrics (PRD §9, §11): derived read-only from the Kanban audit trail.
   server.get<{ Querystring: { window?: string } }>('/api/metrics', async (request, reply) => {
     noStore(reply);

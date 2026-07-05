@@ -5,9 +5,9 @@
 // the document, and returns a schema-valid empty default when the file is absent so
 // the disposition function can treat "no policy" as "review-only" without special-casing.
 
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { type Policy, validatePolicy } from '../schemas/policy';
 import type { ValidationError } from '../schemas/validate';
@@ -22,6 +22,10 @@ export interface PolicyStoreOptions {
 export type LoadPolicyResult =
   | { ok: true; exists: boolean; policy: Policy; path: string }
   | { ok: false; exists: boolean; errors: ValidationError[]; path: string };
+
+export type WritePolicyResult =
+  | { ok: true; policy: Policy; path: string }
+  | { ok: false; errors: ValidationError[]; path: string };
 
 // A collector id may arrive either as the canonical `keryx-<source>` or as a bare
 // `<source>`. Normalise to the source so directory math is uniform.
@@ -114,4 +118,34 @@ export function loadPolicy(collector: string, options: PolicyStoreOptions = {}):
   }
 
   return { ok: true, exists: true, policy: validation.value, path };
+}
+
+export function writePolicy(policy: Policy, options: PolicyStoreOptions = {}): WritePolicyResult {
+  const path = resolvePolicyPath(policy.collector, options);
+  const validation = validatePolicy(policy);
+  if (!validation.ok) {
+    return { ok: false, errors: validation.errors, path };
+  }
+
+  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(tempPath, `${JSON.stringify(validation.value, null, 2)}\n`, 'utf8');
+    renameSync(tempPath, path);
+  } catch (error) {
+    return {
+      ok: false,
+      path,
+      errors: [
+        {
+          path: '',
+          message: `could not write policy file: ${error instanceof Error ? error.message : String(error)}`,
+          keyword: 'write',
+          params: {},
+        },
+      ],
+    };
+  }
+
+  return { ok: true, policy: validation.value, path };
 }

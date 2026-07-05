@@ -1,8 +1,10 @@
 // regretCmd: records an escalation-regret signal on a card (feeds confidence bands).
 
+import { parseActionItemFromTask } from '../../hermes/taskBody';
 import { validateRegret } from '../../schemas/regret';
 import type { CommandResult } from '../output';
 import { fail, formatValidationErrors, json, ok } from '../output';
+import { buildCorrection } from '../builders';
 import { type CommandContext, stringFlag, validateTaskIdArgument } from '../shared';
 
 // `regret <task_id> --kind ...` (PRD §7.9): records a one-click escalation-regret signal
@@ -43,5 +45,28 @@ export async function regretCmd(ctx: CommandContext): Promise<CommandResult> {
   }
 
   await adapter.commentTask(taskId, JSON.stringify(regret));
+
+  if (note) {
+    const task = await adapter.showTask(taskId);
+    const body = parseActionItemFromTask(task);
+    if (!body.ok) {
+      return fail(`FAIL invalid action body for ${task.id}:\n${body.message}`);
+    }
+
+    await adapter.commentTask(
+      taskId,
+      JSON.stringify(
+        buildCorrection({
+          actionItem: body.actionItem,
+          kind: 'silent_regret_feedback',
+          note,
+          recordedBy: 'User',
+          recordedVia: 'keryx-web',
+          now,
+        }),
+      ),
+    );
+  }
+
   return ok(json({ ok: true, task_id: taskId, kind, action: 'recorded' }));
 }

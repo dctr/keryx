@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { sampleActionItem } from '../helpers/sampleActionItem';
-import { aggregateTrackRecord } from '../../src/policy/trackRecord';
+import { aggregateTrackRecord, trackRecordKey } from '../../src/policy/trackRecord';
+import { deriveBand } from '../../src/policy/confidence';
 import type { ActionItem } from '../../src/schemas/actionItem';
 import type { KanbanComment, KanbanTask } from '../../src/hermes/types';
 
@@ -81,6 +82,13 @@ function task(body: string, comments: KanbanComment[], id = 't1'): KanbanTask {
 }
 
 const CLASS = 'email:newsletter-unsubscribe';
+const DEFAULT_COLLECTOR = 'keryx-email';
+
+function approvals(count: number, prefix: string, cls: string): KanbanTask[] {
+  return Array.from({ length: count }, (_, index) =>
+    task(cardBody(cls), [executionDecision('opt-primary')], `${prefix}-${index}`),
+  );
+}
 
 describe('aggregateTrackRecord', () => {
   it('returns an empty map for no tasks', () => {
@@ -89,7 +97,7 @@ describe('aggregateTrackRecord', () => {
 
   it('counts an approval when the selected option is the primary recommendation', () => {
     const tasks = [task(cardBody(CLASS, 'opt-primary'), [executionDecision('opt-primary')])];
-    expect(aggregateTrackRecord(tasks)[CLASS]).toEqual({
+    expect(aggregateTrackRecord(tasks)[trackRecordKey(DEFAULT_COLLECTOR, CLASS)]).toEqual({
       approved: 1,
       overridden: 0,
       dismissed: 0,
@@ -99,7 +107,7 @@ describe('aggregateTrackRecord', () => {
 
   it('counts an override (not an approval) when the selected option differs from primary', () => {
     const tasks = [task(cardBody(CLASS, 'opt-primary'), [executionDecision('opt-alt')])];
-    expect(aggregateTrackRecord(tasks)[CLASS]).toEqual({
+    expect(aggregateTrackRecord(tasks)[trackRecordKey(DEFAULT_COLLECTOR, CLASS)]).toEqual({
       approved: 0,
       overridden: 1,
       dismissed: 0,
@@ -109,12 +117,12 @@ describe('aggregateTrackRecord', () => {
 
   it('counts a dismissal', () => {
     const tasks = [task(cardBody(CLASS), [dismissal('inbox:42')])];
-    expect(aggregateTrackRecord(tasks)[CLASS].dismissed).toBe(1);
+    expect(aggregateTrackRecord(tasks)[trackRecordKey(DEFAULT_COLLECTOR, CLASS)].dismissed).toBe(1);
   });
 
   it('counts regret comments', () => {
     const tasks = [task(cardBody(CLASS), [regret('should_have_asked')])];
-    expect(aggregateTrackRecord(tasks)[CLASS].regret).toBe(1);
+    expect(aggregateTrackRecord(tasks)[trackRecordKey(DEFAULT_COLLECTOR, CLASS)].regret).toBe(1);
   });
 
   it('tallies multiple comment kinds on a single task', () => {
@@ -124,8 +132,8 @@ describe('aggregateTrackRecord', () => {
         regret('should_have_acted'),
       ]),
     ];
-    expect(aggregateTrackRecord(tasks)[CLASS]).toEqual({
-      approved: 1,
+    expect(aggregateTrackRecord(tasks)[trackRecordKey(DEFAULT_COLLECTOR, CLASS)]).toEqual({
+      approved: 0,
       overridden: 0,
       dismissed: 0,
       regret: 1,
@@ -141,15 +149,74 @@ describe('aggregateTrackRecord', () => {
       task(cardBody(other, 'opt-primary'), [executionDecision('opt-primary')], 'd'),
     ];
     const record = aggregateTrackRecord(tasks);
-    expect(record[CLASS]).toEqual({ approved: 1, overridden: 1, dismissed: 1, regret: 0 });
-    expect(record[other]).toEqual({ approved: 1, overridden: 0, dismissed: 0, regret: 0 });
+    expect(record[trackRecordKey(DEFAULT_COLLECTOR, CLASS)]).toEqual({ approved: 0, overridden: 0, dismissed: 1, regret: 0 });
+    expect(record[trackRecordKey(DEFAULT_COLLECTOR, other)]).toEqual({ approved: 1, overridden: 0, dismissed: 0, regret: 0 });
+  });
+
+  it('resets confidence to cold after a dismissal even with many prior approvals', () => {
+    const tasks = [
+      ...approvals(10, 'before', CLASS),
+      task(cardBody(CLASS), [dismissal('inbox:reset')], 'reset'),
+    ];
+
+    const record = aggregateTrackRecord(tasks)[trackRecordKey(DEFAULT_COLLECTOR, CLASS)];
+    expect(record).toEqual({ approved: 0, overridden: 0, dismissed: 1, regret: 0 });
+    expect(deriveBand(record)).toBe('cold');
+  });
+
+  it('rebuilds confidence only from approvals after the latest reset', () => {
+    const tasks = [
+      ...approvals(10, 'before', CLASS),
+      task(cardBody(CLASS), [dismissal('inbox:reset')], 'reset'),
+      ...approvals(3, 'after', CLASS),
+    ];
+
+    const record = aggregateTrackRecord(tasks)[trackRecordKey(DEFAULT_COLLECTOR, CLASS)];
+    expect(record.approved).toBe(3);
+    expect(record.overridden).toBe(0);
+    expect(record.dismissed).toBe(1);
+    expect(deriveBand(record)).toBe('warming');
+  });
+
+  it('resets confidence to cold after regret and rebuilds from later approvals', () => {
+    const tasks = [
+      ...approvals(10, 'before', CLASS),
+      task(cardBody(CLASS), [regret('should_have_asked')], 'reset-regret'),
+      ...approvals(2, 'after', CLASS),
+    ];
+
+    const record = aggregateTrackRecord(tasks)[trackRecordKey(DEFAULT_COLLECTOR, CLASS)];
+    expect(record).toEqual({ approved: 2, overridden: 0, dismissed: 0, regret: 1 });
+    expect(deriveBand(record)).toBe('cold');
+  });
+
+  it('separates confidence by collector and class', () => {
+    const sharedClass = 'email:newsletter';
+    const tasks = [
+      task(cardBody(sharedClass, 'opt-primary', { collector: 'keryx-email-a' }), [executionDecision('opt-primary')], 'a'),
+      task(cardBody(sharedClass, 'opt-primary', { collector: 'keryx-email-b' }), [dismissal('inbox:7')], 'b'),
+    ];
+
+    const record = aggregateTrackRecord(tasks);
+    expect(record[trackRecordKey('keryx-email-a', sharedClass)]).toEqual({
+      approved: 1,
+      overridden: 0,
+      dismissed: 0,
+      regret: 0,
+    });
+    expect(record[trackRecordKey('keryx-email-b', sharedClass)]).toEqual({
+      approved: 0,
+      overridden: 0,
+      dismissed: 1,
+      regret: 0,
+    });
   });
 
   it('treats a decision as an approval when the card declares no primary option', () => {
     const item = sampleActionItem({ class: CLASS });
     delete (item as { ui?: unknown }).ui;
     const tasks = [task(JSON.stringify(item), [executionDecision('translate_forward_contact_archive')])];
-    expect(aggregateTrackRecord(tasks)[CLASS]).toEqual({
+    expect(aggregateTrackRecord(tasks)[trackRecordKey(DEFAULT_COLLECTOR, CLASS)]).toEqual({
       approved: 1,
       overridden: 0,
       dismissed: 0,
@@ -174,7 +241,7 @@ describe('aggregateTrackRecord', () => {
       ]),
     ];
     // None of the above validate as a counted comment, so the class still registers at zero.
-    expect(aggregateTrackRecord(tasks)[CLASS]).toEqual({
+    expect(aggregateTrackRecord(tasks)[trackRecordKey(DEFAULT_COLLECTOR, CLASS)]).toEqual({
       approved: 0,
       overridden: 0,
       dismissed: 0,
@@ -184,7 +251,7 @@ describe('aggregateTrackRecord', () => {
 
   it('registers a class at zero counts even with no comments', () => {
     const tasks = [task(cardBody(CLASS), [])];
-    expect(aggregateTrackRecord(tasks)[CLASS]).toEqual({
+    expect(aggregateTrackRecord(tasks)[trackRecordKey(DEFAULT_COLLECTOR, CLASS)]).toEqual({
       approved: 0,
       overridden: 0,
       dismissed: 0,

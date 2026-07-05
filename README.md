@@ -17,13 +17,15 @@ Keryx is intentionally thin. It does not replace Hermes cron, Kanban, worker dis
 
 ## The three dispositions
 
-Every actionable card resolves to exactly one disposition, derived by `src/policy/disposition.ts` from each option's risk axes, the user's confidence band for the card's `(collector, class)`, urgency, and the collector's human-approved policy. A card may carry an advisory `proposed_disposition`, but the system can only downgrade it, never upgrade to silent or interrupt.
+Every actionable card resolves to exactly one disposition, derived by `src/policy/disposition.ts` from each option's risk axes, the user's confidence band for the card's exact `(collector, class)` scope, urgency, and the collector's human-approved policy. A card may carry an advisory `proposed_disposition`, but the system can only downgrade it, never upgrade to silent or interrupt.
 
 - **Silent** — the option is `read_only` (silent by design, since it mutates nothing) or its class has graduated and an `active` policy rule covers it. The card is created `ready` with a synthetic `keryx.policy_decision.v1` comment; a worker executes and records a `keryx.outcome.v1` comment; the result is reported non-urgently through the digest.
 - **Review** (the default fallback) — the card is created `blocked` and waits in the dashboard for the operator to approve an option on their own schedule.
 - **Interrupt** — urgent and consequential. The card is created `blocked` and Keryx pushes a self-contained message (recommendation, risk, expiring default, deep link) through `hermes send`; a `default_on_timeout` resolves it deterministically if unanswered.
 
 Silent is never reachable for a state-changing class without an explicit, human-approved policy rule, and never at all for the absolute-floor categories (money, destructive, credential/2FA/CAPTCHA gates), which cap at draft + approve.
+
+Confidence uses cold-reset epochs: rejection, dismissal, or silent regret for a `(collector, class)` resets that exact scope to `cold`; approvals only rebuild confidence from events after the latest reset.
 
 ## Requirements
 
@@ -160,7 +162,7 @@ hermes keryx undo <task_id>
 
 `execute` writes a trusted `keryx.execution_decision.v1` comment and promotes the card. `dismiss` archives only that exact item. `mark-reviewed` clears a done card from the review log. `undo` honestly reverses or corrects an executed card per its option's reversibility (reversible → reversal card; compensable → labeled correction; irreversible → corrective triage).
 
-The silent path, the outcomes digest, expiring interrupt defaults, attention metrics, escalation-regret signals, and the policy store have their own commands:
+The silent path, the outcomes digest, expiring interrupt defaults, attention metrics, escalation-regret signals, and policy learning have their own commands:
 
 ```sh
 hermes keryx auto-execute <card.json>            # validate, derive disposition, create a silent ready card
@@ -168,13 +170,19 @@ hermes keryx digest --preview [--cadence daily|weekly]
 hermes keryx default-resolve [--preview]         # fire default_on_timeout for stale interrupts
 hermes keryx metrics [--window <range>] [--json]
 hermes keryx regret <task_id> --kind <should_have_acted|should_have_asked> [--note <text>]
+hermes keryx policy scan <collector> [--preview] [--json]
+hermes keryx policy apply <task_id>
 hermes keryx policy show <collector> [--json]
 hermes keryx policy validate <file>
-hermes keryx policy propose <file>               # create a human-approval card to add a rule
-hermes keryx policy revoke <collector> --rule <id>
+hermes keryx schema correction
+hermes keryx validate-correction <file>
 ```
 
-Each schema has a matching validator: `validate-card`, `validate-decision`, `validate-state`, `validate-policy-decision`, `validate-outcome`, `validate-policy`, and `validate-dismissal`.
+`policy scan` derives promotion/demotion proposal cards from history; `policy apply` is the deterministic apply path for approved proposal cards. Do not hand-edit policy files.
+
+Use `hermes keryx list --status done` plus `hermes keryx show <task_id>` for review-log inspection, and `hermes keryx digest --preview` for digest access.
+
+Each schema has a matching validator: `validate-card`, `validate-decision`, `validate-state`, `validate-policy-decision`, `validate-outcome`, `validate-policy`, `validate-correction`, and `validate-dismissal`.
 
 ## Authoring collectors
 
@@ -184,7 +192,7 @@ Keryx ships no sample `collectors/` folder. Collectors are authored into Hermes'
 /keryx-collector-creator create a collector for <source>
 ```
 
-The creator writes a source-specific skill into `$HERMES_HOME/skills/keryx-collector-<source>/` and a Hermes cron job; it never generates skills into the Keryx repository. See `docs/collector-authoring.md` for patterns, idempotency, and cursor safety.
+The creator writes a source-specific skill into `$HERMES_HOME/skills/keryx-collector-<source>/` and a Hermes cron job; it never generates skills into the Keryx repository. Generated email collectors follow the same rule (for example `$HERMES_HOME/skills/keryx-collector-email/`). See `docs/collector-authoring.md` for patterns, idempotency, and cursor safety.
 
 Collector safety contract:
 

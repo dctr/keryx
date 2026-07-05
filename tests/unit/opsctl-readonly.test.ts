@@ -26,7 +26,7 @@ describe('read-only opsctl commands', () => {
     const result = await runOpsctl(['--help'], { env: {}, configPath: null });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('schema <action-item|execution-decision|dismissal-decision|policy-decision|outcome|policy|notification|regret|collector-state>');
+    expect(result.stdout).toContain('schema <action-item|execution-decision|dismissal-decision|policy-decision|outcome|policy|notification|regret|collector-state|correction>');
     expect(result.stdout).toContain('template-card [--source <source>] [--collector <collector>]');
     expect(result.stdout).toContain('validate-state <file>');
     expect(result.stdout).toContain('validate-decision <file>');
@@ -122,6 +122,7 @@ describe('read-only opsctl commands', () => {
       ['notification', 'schemas/notification.v1.schema.json'],
       ['regret', 'schemas/regret.v1.schema.json'],
       ['collector-state', 'schemas/collector-state.v1.schema.json'],
+      ['correction', 'schemas/correction.v1.schema.json'],
     ] as const) {
       const result = await runOpsctl(['schema', name], { env: {}, configPath: null });
 
@@ -137,7 +138,7 @@ describe('read-only opsctl commands', () => {
     expect(result.exitCode).toBe(2);
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain(
-      'FAIL schema requires one of: action-item, execution-decision, dismissal-decision, policy-decision, outcome, policy, notification, regret, collector-state',
+      'FAIL schema requires one of: action-item, execution-decision, dismissal-decision, policy-decision, outcome, policy, notification, regret, collector-state, correction',
     );
   });
 

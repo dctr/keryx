@@ -34,10 +34,10 @@ describe('opsctl execute', () => {
       env: {},
     });
 
-    const commentRequest = runner.mock.calls[1][0];
-    expect(commentRequest.args.slice(0, 5)).toEqual(['kanban', '--board', 'keryx', 'comment', 't_blocked']);
-    expect(commentRequest.args).toHaveLength(6);
-    expect(JSON.parse(commentRequest.args[5])).toEqual({
+    const decisionCommentRequest = runner.mock.calls[1][0];
+    expect(decisionCommentRequest.args.slice(0, 5)).toEqual(['kanban', '--board', 'keryx', 'comment', 't_blocked']);
+    expect(decisionCommentRequest.args).toHaveLength(6);
+    expect(JSON.parse(decisionCommentRequest.args[5])).toEqual({
       schema: 'keryx.execution_decision.v1',
       selected_option_id: 'translate_forward_contact_archive',
       user_feedback: 'Please be brief.',
@@ -45,12 +45,28 @@ describe('opsctl execute', () => {
       approved_via: 'keryx-web',
       approved_at: '2026-05-31T12:34:56.000Z',
     });
-    expect(runner).toHaveBeenNthCalledWith(3, {
+
+    const correctionCommentRequest = runner.mock.calls[2][0];
+    expect(correctionCommentRequest.args.slice(0, 5)).toEqual(['kanban', '--board', 'keryx', 'comment', 't_blocked']);
+    expect(correctionCommentRequest.args).toHaveLength(6);
+    expect(JSON.parse(correctionCommentRequest.args[5])).toEqual({
+      schema: 'keryx.correction.v1',
+      collector: 'keryx-email',
+      class: 'email:support-request',
+      external_id: 'support-inbox:INBOX:35680',
+      idempotency_key: 'keryx:email:support-inbox:INBOX:35680',
+      kind: 'approval_feedback',
+      note: 'Please be brief.',
+      recorded_by: 'User',
+      recorded_via: 'keryx-web',
+      recorded_at: '2026-05-31T12:34:56.000Z',
+    });
+    expect(runner).toHaveBeenNthCalledWith(4, {
       bin: 'hermes',
       args: ['kanban', '--board', 'keryx', 'promote', 't_blocked', 'approved from Keryx', '--json'],
       env: {},
     });
-    expect(runner).toHaveBeenNthCalledWith(4, {
+    expect(runner).toHaveBeenNthCalledWith(5, {
       bin: 'hermes',
       args: ['kanban', '--board', 'keryx', 'dispatch', '--json'],
       env: {},

@@ -89,6 +89,12 @@ rm -f /tmp/keryx-card.json
 
 `hermes keryx create-card` applies the central Keryx card policy: board selection, schema validation, the disposition decision (silent → `ready` + `keryx.policy_decision.v1` comment; review/interrupt → `blocked`), `keryx:keryx-worker`, assignee, tenant, created-by, and idempotency key handling. Collector prompts and helpers should call that command instead of duplicating those decisions. Use `./bin/opsctl ...` only as the direct repository fallback.
 
+Policy-learning follow-up is deterministic and separate from collector-side carding:
+
+- `hermes keryx policy scan <collector> [--preview]` derives graduation/demotion proposals from exact `(collector, class)` history with cold-reset semantics.
+- approved policy proposal cards are applied with `hermes keryx policy apply <task_id>`; do not hand-edit `references/policy.json`.
+- textual feedback comments use `keryx.correction.v1`; inspect with `hermes keryx schema correction` and validate with `hermes keryx validate-correction <file>` when testing fixtures.
+
 ## Idempotency key design
 
 A good idempotency key is deterministic and source-scoped:
@@ -100,6 +106,19 @@ keryx:<source-name>:<immutable-source-id>
 Do not include timestamps, titles, summaries, or mutable page text. Retries should hit the same key and avoid duplicate cards.
 
 Validation enforces the `keryx:` prefix plus at least two non-empty colon-separated segments (source and id); a single-segment key such as `keryx:foo` is rejected. The segments themselves stay liberal, so ids that contain colons (for example `keryx:email:support-inbox:INBOX:35680`) remain valid.
+
+## Email collector generated artifact contract
+
+When invoking `/keryx-collector-creator` for email, the generated artifacts should satisfy this contract in Hermes space (not in the repository tree):
+
+- Generate source-specific skill `keryx-collector-email` at `$HERMES_HOME/skills/keryx-collector-email/SKILL.md`.
+- Include a fixture harness containing compact fake email facts only (message ids/headers/labels/snippets), never raw mailbox bodies.
+- Define source cursor state and exact-dismiss state keyed by immutable message id.
+- Use idempotency keys in the form `keryx:email:<immutable-message-id>`.
+- Include `references/policy.json` (`keryx.policy.v1`) and keep all state-changing rules in `state: shadow`.
+- Include correction handling notes: correction comments inform future classification but are never direct execution authority.
+- Include a cold-reset rule: rejected, dismissed, or regretted classes restart confidence at `cold`.
+- Persist no raw email content in fixtures, logs, card bodies, comments, or policy artifacts.
 
 ## Cursor safety
 
@@ -149,3 +168,15 @@ Equivalent cron skill JSON:
 ```
 
 Outcomes are reported through the `<notify_target>` digest, not by the collector cron job — ensure a `keryx-digest` job exists so monitor outputs and silent outcomes reach the user. Dry-run against fixtures before creating a real cron job; the collector designer never creates cron jobs automatically.
+
+For state-changing classes, you may also schedule an optional maintenance cron to keep graduation/demotion proposal generation moving even when workers do not run long enough to scan policy:
+
+```text
+Name: keryx-policy-scan-<source>
+Schedule: daily or every 6h
+Prompt: Run `hermes keryx policy scan keryx-<source>`; report only errors.
+Skills: keryx:keryx-collector
+Delivery: local or origin, not interrupt
+```
+
+Keep this scan quiet on success. Include cold-reset wording in operator notes: after regret/override resets a class to `cold`, the next scan should emit the needed demotion/shadow proposal cards instead of waiting for a long worker run.

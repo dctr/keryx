@@ -12,7 +12,7 @@ The email collector runs periodically. On each run it checks the configured mail
 
 Early in use, the collector has little evidence about the user's preferences. For most state-changing actions, such as unsubscribing from a newsletter and moving the message to trash, the collector creates blocked Keryx review cards rather than acting automatically. Each card renders in the Keryx web inbox with concise summary, risk, source reference, available option buttons, and a text input field for optional feedback. The user can approve an option, reject or dismiss the card, or approve/reject while giving textual correction.
 
-When the user approves an option, Keryx records a trusted human execution decision and dispatches the worker. The worker re-queries the email source, verifies the action is still valid, performs only the approved option, records the outcome, and updates the relevant policy/track-record/state files. When the user rejects or dismisses a card, Keryx records that outcome as negative evidence for the collector/class. If the rejection includes text, the worker or policy updater stores it as a correction that can improve future classification. If the rejection has no feedback, it still lowers confidence for that collector/class but provides no new learning instruction.
+When the user approves an option, Keryx records a trusted human execution decision and dispatches the worker. The worker re-queries the email source, verifies the action is still valid, performs only the approved option, records the outcome, and updates the relevant policy/track-record/state files. When the user rejects or dismisses a card, Keryx records that outcome as negative evidence for the collector/class and resets that `(collector, class)` confidence epoch to `cold`. If the rejection includes text, the worker or policy updater stores it as a correction that can improve future classification. If the rejection has no feedback, Keryx invents no correction text, but the cold reset still applies. Later approvals may rebuild confidence only from events after that reset.
 
 Over time, repeated approvals with little or no corrective feedback increase confidence for narrow classes of action. For example, the email collector may learn the class `email:newsletter_unsubscribe_trash`: messages classified as newsletters where the safe action is to click the unsubscribe link when present, then move the message to trash. Confidence is scoped to this collector/class and does not generalize to unrelated email actions. High confidence for newsletter unsubscribe-and-trash does not authorize automatic replies, meeting commitments, purchases, relationship-sensitive responses, or any non-newsletter action.
 
@@ -106,9 +106,9 @@ Out of scope for this story:
 - Given no active policy rule covers the collector/class, then the state-changing action is created as a blocked review card even if the collector proposes review or silent.
 - Given a blocked email card, then the web UI renders the summary, risk, source reference, option buttons, and feedback input.
 - Given the user approves an option, then Keryx records a trusted execution decision containing the selected option and optional feedback.
-- Given the user rejects or dismisses the card, then Keryx records negative evidence for that collector/class.
+- Given the user rejects or dismisses the card, then Keryx records negative evidence and resets that `(collector, class)` confidence epoch to `cold`.
 - Given rejection includes text feedback, then Keryx stores the correction in the appropriate collector/policy state for future classification.
-- Given rejection has no text feedback, then confidence decreases or fails to increase, but no synthetic learning instruction is invented.
+- Given rejection has no text feedback, then Keryx still resets confidence to `cold` but invents no synthetic learning instruction.
 
 ### Worker execution and learning
 
@@ -133,7 +133,7 @@ Out of scope for this story:
 - Given a card resolves to `silent`, then Keryx records a synthetic policy decision and dispatches the worker without requiring the user to review it first.
 - Given silent execution succeeds, then the outcome is visible in the non-urgent digest and review log.
 - Given the silent action is reversible or compensable, then the review log exposes an honest undo/correct path.
-- Given the user marks a silent action as regretted or incorrect, then Keryx records negative evidence, applies textual correction if supplied, and may demote or propose revocation of the policy rule.
+- Given the user marks a silent action as regretted or incorrect, then Keryx records negative evidence, resets that `(collector, class)` confidence epoch to `cold`, applies textual correction if supplied, and should propose demotion or revocation of the active policy rule.
 - Given an email falls outside the active rule, has uncertain classification, exceeds risk bounds, requires credentials/payment/2FA/CAPTCHA/consent, or contains money/destructive implications, then it does not run silently.
 
 ### Metrics and auditability
@@ -209,8 +209,9 @@ Operational metrics:
 ### Policy and confidence tests
 
 - Repeated approvals for `email:newsletter_unsubscribe_trash` move the confidence band upward for that class only.
-- Rejection without feedback moves confidence downward or blocks promotion without adding correction text.
+- Rejection without feedback resets confidence to `cold` without adding correction text.
 - Rejection with feedback stores correction text and affects later classification fixtures.
+- Approvals after a rejection/dismissal reset rebuild confidence only from post-reset events.
 - Confidence for newsletter handling does not affect `email:reply_required`, `email:invoice_payment`, or other classes.
 - Crossing the threshold creates a blocked policy proposal card and does not create an active rule automatically.
 - Approving the policy proposal creates an active `keryx.policy.v1` rule with expected bounds.
@@ -251,7 +252,7 @@ Operational metrics:
 - Collector advances cursor before card creation: duplicate or lost-item tests fail; cursor may advance only after safe handling.
 - Duplicate poll sees the same email: idempotency prevents duplicate cards and duplicate side effects.
 - User approves the wrong action accidentally: review log exposes undo/correct where the option is reversible or compensable.
-- User rejects without feedback: confidence decreases, but Keryx does not infer a correction the user did not provide.
+- User rejects without feedback: confidence resets to `cold`, and Keryx does not infer a correction the user did not provide.
 - User rejects with feedback: feedback is attached to the learning/policy state and affects future classification.
 - Model overgeneralizes from newsletters to other email classes: confidence isolation tests fail; unrelated classes remain review-only.
 - Graduation threshold is crossed: Keryx proposes a blocked graduation card, not automatic silent execution.
@@ -260,7 +261,7 @@ Operational metrics:
 - Newsletter unsubscribe requires login, 2FA, CAPTCHA, payment, or consent dialog: worker blocks and returns to review or visible human flow.
 - Unsubscribe link is absent or ambiguous: worker does not invent an unsubscribe path; it may trash, dismiss, or review depending on approved option and policy.
 - Live source state drifts after approval: worker blocks rather than acting on stale assumptions.
-- Silent action later regretted: Keryx records regret, lowers confidence, exposes undo/correction where possible, and may propose policy demotion or revocation.
+- Silent action later regretted: Keryx records regret, resets confidence to `cold`, exposes undo/correction where possible, and should trigger policy demotion or revocation proposal flow.
 - Digest is too noisy: metrics should show low attention savings or high archive-without-read; policy/reporting cadence should be adjustable.
 - Dashboard is exposed beyond localhost without protection: deployment is invalid unless external authentication/private networking is configured.
 

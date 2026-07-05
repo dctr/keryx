@@ -38,8 +38,14 @@ export interface PolicyRuleView {
 export interface PolicyTrackRecordView {
   approved: number;
   overridden: number;
+  approved_since_reset: number;
+  overridden_since_reset: number;
   dismissed: number;
   regret: number;
+  latest_reset: {
+    kind: 'dismissal' | 'regret';
+    at: string | null;
+  } | null;
   band: ConfidenceBand;
 }
 
@@ -49,6 +55,11 @@ export interface PolicyResponse {
   version: number;
   rules: PolicyRuleView[];
   track_record: Record<string, PolicyTrackRecordView>;
+}
+
+export interface PolicyScanResponse {
+  ok: true;
+  output: string;
 }
 
 export interface MetricsResponse {
@@ -97,6 +108,14 @@ export async function revokePolicyRule(collector: string, ruleId: string): Promi
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ rule_id: ruleId }),
+  });
+}
+
+export async function scanPolicy(collector: string, preview: boolean): Promise<PolicyScanResponse> {
+  return requestJson<PolicyScanResponse>(`/api/policy/${encodeURIComponent(collector)}/scan`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ preview }),
   });
 }
 

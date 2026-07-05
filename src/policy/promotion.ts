@@ -7,7 +7,10 @@
 // the candidates the worker hook turns into proposals.
 
 import { type Band, deriveBand, type TrackRecord } from './confidence';
+import { splitTrackRecordKey } from './trackRecord';
 import type { PolicyRule, RuleState } from '../schemas/policy';
+
+export type PromotionTargetState = RuleState | 'revoked';
 
 export interface PromotionIntent {
   // `promote`: the class is ready to climb a rung (no rule → shadow, or shadow → active).
@@ -17,7 +20,7 @@ export interface PromotionIntent {
   band: Band;
   // The state of the existing rule for this class, or null when no rule exists yet.
   currentState: RuleState | null;
-  targetState: RuleState;
+  targetState: PromotionTargetState;
   // The rule this intent acts on, or null when proposing a brand-new (first) rule.
   ruleId: string | null;
 }
@@ -32,23 +35,44 @@ function ruleForClass(rules: PolicyRule[], cls: string): PolicyRule | undefined 
 export function computePromotionIntents(
   trackRecord: Record<string, TrackRecord>,
   rules: PolicyRule[],
+  collector?: string,
 ): PromotionIntent[] {
   const intents: PromotionIntent[] = [];
+  const scopedByClass: Record<string, TrackRecord> = {};
 
-  // Every class appearing in the track record or in a rule is a promotion/demotion
-  // candidate — a rule with no history still demotes if its band cannot be sustained.
-  const classes = new Set<string>([...Object.keys(trackRecord), ...rules.map((rule) => rule.class)]);
+  for (const [key, record] of Object.entries(trackRecord)) {
+    const parts = splitTrackRecordKey(key);
+    if (parts.collector.length > 0) {
+      if (collector && parts.collector !== collector) continue;
+      scopedByClass[parts.class] = record;
+      continue;
+    }
+    // Back-compat for legacy class-only keys.
+    scopedByClass[key] = record;
+  }
+
+  // Every class appearing in the (optionally collector-scoped) track record or in
+  // a rule is a promotion/demotion candidate — a rule with no history still demotes
+  // if its band cannot be sustained.
+  const classes = new Set<string>([...Object.keys(scopedByClass), ...rules.map((rule) => rule.class)]);
 
   for (const cls of classes) {
-    const record: TrackRecord = trackRecord[cls] ?? { approved: 0, overridden: 0, dismissed: 0, regret: 0 };
+    const record: TrackRecord = scopedByClass[cls] ?? { approved: 0, overridden: 0, dismissed: 0, regret: 0 };
     const band = deriveBand(record);
     const rule = ruleForClass(rules, cls);
 
     if (rule?.state === 'active') {
-      // Demotion: a trusted class that starts producing corrections demotes to warming
-      // and its active rule reverts to shadow (PRD §13). Only `trusted` sustains active.
+      // Demotion: only `trusted` sustains active. A warming band demotes active -> shadow,
+      // while a cold reset revokes the rule entirely (active -> revoked).
       if (band !== 'trusted') {
-        intents.push({ kind: 'demote', class: cls, band, currentState: 'active', targetState: 'shadow', ruleId: rule.id });
+        intents.push({
+          kind: 'demote',
+          class: cls,
+          band,
+          currentState: 'active',
+          targetState: band === 'cold' ? 'revoked' : 'shadow',
+          ruleId: rule.id,
+        });
       }
       continue;
     }

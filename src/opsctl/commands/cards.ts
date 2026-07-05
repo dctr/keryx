@@ -8,6 +8,7 @@ import type { HermesCliAdapter } from '../../hermes/adapter';
 import type { ActionItem, ActionOption } from '../../schemas/actionItem';
 import { actionItemSchema, validateActionItem } from '../../schemas/actionItem';
 import { collectorStateSchema } from '../../schemas/collectorState';
+import { correctionSchema } from '../../schemas/correction';
 import { dismissalDecisionSchema } from '../../schemas/dismissalDecision';
 import { executionDecisionSchema } from '../../schemas/executionDecision';
 import { notificationSchema } from '../../schemas/notification';
@@ -19,7 +20,7 @@ import { regretSchema } from '../../schemas/regret';
 import { deriveBand, type Band, type TrackRecord } from '../../policy/confidence';
 import { decideDisposition } from '../../policy/disposition';
 import { loadPolicy } from '../../policy/policyStore';
-import { aggregateTrackRecord } from '../../policy/trackRecord';
+import { aggregateTrackRecord, trackRecordKey } from '../../policy/trackRecord';
 import {
   buildNotification,
   composeInterruptMessage,
@@ -74,6 +75,10 @@ const SCHEMA_COMMANDS = {
   'collector-state': {
     schema: collectorStateSchema,
     fileUrl: new URL('../../../schemas/collector-state.v1.schema.json', import.meta.url),
+  },
+  correction: {
+    schema: correctionSchema,
+    fileUrl: new URL('../../../schemas/correction.v1.schema.json', import.meta.url),
   },
 } as const;
 
@@ -189,7 +194,7 @@ function selectedOptionFor(card: ActionItem): ActionOption {
 
 async function deriveBandForClass(card: ActionItem, adapter: HermesCliAdapter): Promise<Band> {
   const tasks = await adapter.listTasksWithComments({ source: collectorSource(card.collector) });
-  const record = aggregateTrackRecord(tasks)[card.class] ?? emptyTrackRecord();
+  const record = aggregateTrackRecord(tasks)[trackRecordKey(card.collector, card.class)] ?? emptyTrackRecord();
   return deriveBand(record);
 }
 

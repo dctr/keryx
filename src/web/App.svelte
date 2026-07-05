@@ -11,6 +11,7 @@
     markReviewed,
     recordRegret,
     revokePolicyRule,
+    scanPolicy,
     undoTask,
     type ApiTask,
     type MetricsResponse,
@@ -62,6 +63,8 @@
   let policyError: string | null = null;
   let policyLoading = false;
   let revokingRuleId: string | null = null;
+  let scanningPolicy: 'preview' | 'apply' | null = null;
+  let policyScanResult: string | null = null;
 
   let metrics: MetricsResponse | null = null;
   let metricsWindow = '';
@@ -191,6 +194,7 @@
     }
     policyLoading = true;
     policyError = null;
+    policyScanResult = null;
     try {
       policy = await fetchPolicy(collector);
     } catch (error) {
@@ -207,6 +211,7 @@
     }
     revokingRuleId = ruleId;
     policyError = null;
+    policyScanResult = null;
     try {
       await revokePolicyRule(policy.collector, ruleId);
       // Revocation is an approval-gated suggestion card, not an in-place edit; reload the
@@ -216,6 +221,29 @@
       policyError = error instanceof Error ? error.message : String(error);
     } finally {
       revokingRuleId = null;
+    }
+  }
+
+  async function handlePolicyScan(preview: boolean): Promise<void> {
+    const collector = policyCollector.trim();
+    if (!collector) {
+      policyError = 'Choose a collector before running policy scan.';
+      return;
+    }
+
+    scanningPolicy = preview ? 'preview' : 'apply';
+    policyError = null;
+    policyScanResult = null;
+    try {
+      const response = await scanPolicy(collector, preview);
+      policyScanResult = response.output;
+      if (!preview) {
+        await refreshDashboard({ silent: true });
+      }
+    } catch (error) {
+      policyError = error instanceof Error ? error.message : String(error);
+    } finally {
+      scanningPolicy = null;
     }
   }
 
@@ -314,6 +342,18 @@
       return value;
     }
     return new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(timestamp));
+  }
+
+  function formatLatestReset(
+    reset: {
+      kind: 'dismissal' | 'regret';
+      at: string | null;
+    } | null,
+  ): string {
+    if (!reset) {
+      return 'none';
+    }
+    return `${reset.kind} @ ${reset.at ? formatDateTime(reset.at) : 'unknown time'}`;
   }
 
   function pollIntervalMs(): number {
@@ -550,13 +590,39 @@
           <button class="secondary" type="button" onclick={() => loadPolicy()} disabled={policyLoading || policyCollector.trim().length === 0}>
             {policyLoading ? 'Loading…' : 'Load policy'}
           </button>
+          <button
+            class="secondary"
+            type="button"
+            data-testid="policy-scan-preview"
+            onclick={() => handlePolicyScan(true)}
+            disabled={policyCollector.trim().length === 0 || scanningPolicy !== null}
+          >
+            {scanningPolicy === 'preview' ? 'Scanning…' : 'Scan preview'}
+          </button>
+          <button
+            class="secondary"
+            type="button"
+            data-testid="policy-scan-apply"
+            onclick={() => handlePolicyScan(false)}
+            disabled={policyCollector.trim().length === 0 || scanningPolicy !== null}
+          >
+            {scanningPolicy === 'apply' ? 'Creating…' : 'Create proposals'}
+          </button>
         </div>
       </header>
 
       {#if policyError}
         <p class="insight-error" role="status">{policyError}</p>
-      {:else if !policy}
-        <p class="empty-state">Pick a collector to inspect its active and shadow rules.</p>
+      {/if}
+
+      {#if policyScanResult}
+        <p class="rule-note" data-testid="policy-scan-result">{policyScanResult}</p>
+      {/if}
+
+      {#if !policy}
+        {#if !policyError}
+          <p class="empty-state">Pick a collector to inspect its active and shadow rules.</p>
+        {/if}
       {:else if policy.rules.length === 0}
         <p class="empty-state">{policy.exists ? `${policy.collector} has no rules yet.` : `${policy.collector} has no policy file yet.`}</p>
       {:else}
@@ -573,6 +639,11 @@
               </div>
               {#if rule.scope_note}
                 <p class="rule-note">{rule.scope_note}</p>
+              {/if}
+              {#if policy.track_record[rule.class]}
+                <p class="rule-note" data-testid={`policy-track-${rule.id}`}>
+                  approvals since reset {policy.track_record[rule.class].approved_since_reset} · overrides since reset {policy.track_record[rule.class].overridden_since_reset} · latest reset {formatLatestReset(policy.track_record[rule.class].latest_reset)}
+                </p>
               {/if}
               <div class="rule-foot">
                 <small>{rule.id} · ≤{rule.gate.max_blast_radius} · ≥{rule.gate.min_reversibility} · ≥{rule.gate.min_confidence}</small>

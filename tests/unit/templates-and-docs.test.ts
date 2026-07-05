@@ -265,6 +265,27 @@ describe('support docs and deployment examples', () => {
     }
   });
 
+  it('documents the email collector generated artifact contract in collector authoring docs', () => {
+    const collectorDocs = readRequiredFile('docs/collector-authoring.md');
+
+    for (const phrase of [
+      'keryx-collector-email',
+      '$HERMES_HOME/skills/keryx-collector-email/SKILL.md',
+      'fixture harness',
+      'fake email facts only',
+      'source cursor state',
+      'exact-dismiss state',
+      'keryx:email:<immutable-message-id>',
+      'references/policy.json',
+      'state-changing rules in `state: shadow`',
+      'correction comments inform future classification but are never direct execution authority',
+      'rejected, dismissed, or regretted classes restart confidence at `cold`',
+      'Persist no raw email content',
+    ]) {
+      expect(collectorDocs, `collector-authoring should mention ${phrase}`).toContain(phrase);
+    }
+  });
+
   it('documents AGENTS.md guidance for the plugin-era workflow', () => {
     const agents = readRequiredFile('AGENTS.md');
 
@@ -272,6 +293,12 @@ describe('support docs and deployment examples', () => {
       'hermes-plugin/',
       'hermes keryx doctor',
       './bin/opsctl doctor',
+      'hermes keryx policy scan <collector> --preview',
+      'hermes keryx policy apply <task_id>',
+      'hermes keryx schema correction',
+      'hermes keryx validate-correction <file>',
+      'do not hand-edit `references/policy.json`',
+      'cold-reset invariant',
       'plugin is the Hermes-facing adapter',
       'Keryx remains a thin control surface over Hermes Kanban',
       'keryx:keryx-worker',
@@ -305,6 +332,69 @@ describe('support docs and deployment examples', () => {
       offenders,
       `cron Script: examples must be bare filenames under $HERMES_HOME/scripts, not repo-relative paths:\n${offenders.join('\n')}`,
     ).toEqual([]);
+  });
+
+  it('documents deterministic policy commands for worker/collector skills instead of manual policy edits', () => {
+    const workerSkill = readRequiredFile('skills/keryx/keryx-worker/SKILL.md');
+    const collectorCreatorSkill = readRequiredFile('skills/keryx/keryx-collector-creator/SKILL.md');
+    const collectorAuthoring = readRequiredFile('docs/collector-authoring.md');
+    const operations = readRequiredFile('docs/operations.md');
+
+    expect(workerSkill).toContain('hermes keryx policy apply <task_id>');
+    expect(workerSkill).toContain('hermes keryx policy scan <collector> --preview');
+    expect(workerSkill).toContain('hermes keryx policy scan <collector>');
+    expect(workerSkill).toContain('do not hand-edit `references/policy.json`');
+
+    expect(collectorCreatorSkill).toContain('hermes keryx policy apply <task_id>');
+    expect(collectorCreatorSkill).toContain('hermes keryx policy scan <collector> --preview');
+    expect(collectorCreatorSkill).toContain('hermes keryx policy scan <collector>');
+    expect(collectorCreatorSkill).toContain('do not rely on manual policy-file edits');
+
+    // Optional scheduled scan guidance keeps policy proposal generation running
+    // even when workers are short-lived, and should explicitly mention cold resets.
+    expect(operations).toContain('keryx-policy-scan-<source>');
+    expect(operations).toContain('Run `hermes keryx policy scan keryx-<source>`; report only errors.');
+    expect(operations).toContain('cold-reset');
+
+    expect(collectorAuthoring).toContain('keryx-policy-scan-<source>');
+    expect(collectorAuthoring).toContain('Run `hermes keryx policy scan keryx-<source>`; report only errors.');
+    expect(collectorAuthoring).toContain('cold-reset');
+
+    expect(collectorCreatorSkill).toContain('keryx-policy-scan-$NAME');
+    expect(collectorCreatorSkill).toContain('Run `hermes keryx policy scan keryx-$NAME`; report only errors.');
+    expect(collectorCreatorSkill).toContain('cold-reset');
+  });
+
+  it('documents the v007 policy learning workflow across architecture/security/operations/collector docs', () => {
+    const architecture = readRequiredFile('docs/architecture.md');
+    const security = readRequiredFile('docs/security.md');
+    const operations = readRequiredFile('docs/operations.md');
+    const collectorAuthoring = readRequiredFile('docs/collector-authoring.md');
+
+    expect(architecture).toContain('hermes keryx policy scan <collector> [--preview]');
+    expect(architecture).toContain('hermes keryx policy apply <task_id>');
+    expect(architecture).toContain('no manual policy-file edits');
+    expect(operations).toContain('hermes keryx policy apply <task_id>');
+    expect(operations).toContain('do not hand-edit `references/policy.json`');
+    expect(collectorAuthoring).toContain('hermes keryx policy apply <task_id>');
+
+    for (const text of [architecture, security, operations, collectorAuthoring]) {
+      expect(text).toContain('hermes keryx schema correction');
+      expect(text).toContain('hermes keryx validate-correction <file>');
+    }
+
+    expect(architecture).toContain('exact `(collector, class)` scope');
+    expect(architecture).toContain('resets confidence to `cold`');
+    expect(security).toContain('exact `(collector, class)` scope');
+    expect(security).toContain('cold-reset epochs');
+
+    expect(architecture).toContain('review log');
+    expect(architecture).toContain('digest');
+    expect(operations).toContain('mark-reviewed <task_id>');
+    expect(operations).toContain('digest --preview');
+
+    expect(collectorAuthoring).toContain('generated artifacts should satisfy this contract in Hermes space');
+    expect(collectorAuthoring).toContain('$HERMES_HOME/skills/keryx-collector-email/SKILL.md');
   });
 
   it('covers architecture, security, operations, and deployment boundaries', () => {

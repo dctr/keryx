@@ -6,6 +6,7 @@ import { fail, formatValidationErrors, ok } from '../output';
 import { parseJsonFile } from '../shared';
 import { validateActionItem } from '../../schemas/actionItem';
 import { validateCollectorState } from '../../schemas/collectorState';
+import { validateCorrection } from '../../schemas/correction';
 import { validateDismissalDecision } from '../../schemas/dismissalDecision';
 import { validateExecutionDecision } from '../../schemas/executionDecision';
 import { validateOutcome } from '../../schemas/outcome';
@@ -94,5 +95,14 @@ export function validateDismissalCommand(filePath: string | undefined): CommandR
     noun: 'dismissal decision',
     validate: validateDismissalDecision,
     echoField: (v) => v.dismissed_external_id,
+  });
+}
+
+export function validateCorrectionCommand(filePath: string | undefined): CommandResult {
+  return runValidate(filePath, {
+    cmd: 'validate-correction',
+    noun: 'correction',
+    validate: validateCorrection,
+    echoField: (v) => v.kind,
   });
 }

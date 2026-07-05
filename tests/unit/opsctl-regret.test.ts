@@ -37,13 +37,28 @@ describe('opsctl regret', () => {
 
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, task_id: 't_silent', kind: 'should_have_asked' });
-    expect(runner.mock.calls.map((call) => call[0].args[3])).toEqual(['comment']);
-    const commentArgs = runner.mock.calls[0][0].args;
-    expect(JSON.parse(commentArgs[5])).toEqual({
+    expect(runner.mock.calls.map((call) => call[0].args[3])).toEqual(['comment', 'show', 'comment']);
+
+    const regretCommentArgs = runner.mock.calls[0][0].args;
+    expect(JSON.parse(regretCommentArgs[5])).toEqual({
       schema: 'keryx.regret.v1',
       kind: 'should_have_asked',
       note: 'Too aggressive.',
       recorded_by: 'User',
+      recorded_at: '2026-06-26T09:00:00.000Z',
+    });
+
+    const correctionCommentArgs = runner.mock.calls[2][0].args;
+    expect(JSON.parse(correctionCommentArgs[5])).toEqual({
+      schema: 'keryx.correction.v1',
+      collector: 'keryx-email',
+      class: 'email:support-request',
+      external_id: 'support-inbox:INBOX:35680',
+      idempotency_key: 'keryx:email:support-inbox:INBOX:35680',
+      kind: 'silent_regret_feedback',
+      note: 'Too aggressive.',
+      recorded_by: 'User',
+      recorded_via: 'keryx-web',
       recorded_at: '2026-06-26T09:00:00.000Z',
     });
   });
@@ -56,6 +71,7 @@ describe('opsctl regret', () => {
       now: () => recordedAt,
     });
     expect(result.exitCode).toBe(0);
+    expect(runner.mock.calls.map((call) => call[0].args[3])).toEqual(['comment']);
     expect(JSON.parse(runner.mock.calls[0][0].args[5])).toMatchObject({ kind: 'should_have_acted', note: null });
   });
 

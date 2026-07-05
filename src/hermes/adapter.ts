@@ -150,6 +150,10 @@ export class HermesCliAdapter {
     return this.run(['kanban', '--board', this.config.board, 'archive', taskId]);
   }
 
+  async completeTask(taskId: string, summary: string): Promise<unknown> {
+    return this.run(['kanban', '--board', this.config.board, 'complete', taskId, '--summary', summary]);
+  }
+
   async dispatch(): Promise<unknown> {
     return parseJson(await this.run(['kanban', '--board', this.config.board, 'dispatch', '--json']));
   }
@@ -238,6 +242,8 @@ function isAllowedKanbanArgs(args: readonly string[]): boolean {
       return rest.length >= 2 && rest.every(isNonEmptyString);
     case 'archive':
       return rest.length >= 1 && rest.every(isNonEmptyString);
+    case 'complete':
+      return rest.length === 3 && isNonEmptyString(rest[0]) && rest[1] === '--summary' && isNonEmptyString(rest[2]);
     case 'dispatch':
       return rest.length === 1 && rest[0] === '--json';
     default:

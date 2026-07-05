@@ -43,16 +43,10 @@ describe('deriveBand', () => {
     expect(deriveBand(tr({ approved: 17, overridden: 3 }))).toBe('trusted');
   });
 
-  it('forces at most warming when there is any recent regret', () => {
+  it('derives trusted from post-reset approvals even when regret counters are non-zero', () => {
     expect(
       deriveBand(tr({ approved: DEFAULT_BAND_THRESHOLDS.trustedApprovals, regret: 1 })),
-    ).toBe('warming');
-  });
-
-  it('forces cold when there is recent regret and too few approvals', () => {
-    expect(
-      deriveBand(tr({ approved: DEFAULT_BAND_THRESHOLDS.warmingApprovals - 1, regret: 1 })),
-    ).toBe('cold');
+    ).toBe('trusted');
   });
 
   it('honours custom thresholds', () => {

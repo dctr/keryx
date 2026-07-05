@@ -105,22 +105,20 @@ describe('bundled Keryx skills', () => {
     expect(workerSkillText).toContain('undo_prompt');
   });
 
-  it('captures generalised learning as structured policy proposals, not prose skill edits', () => {
+  it('routes policy mutation through deterministic policy apply/scan commands, not manual edits', () => {
     const workerSkillText = readFileSync(join(categoryRoot, 'keryx-worker', 'SKILL.md'), 'utf8');
 
-    // v005 replaces the old "edit the collector SKILL.md" feedback loop with structured
-    // keryx.policy.v1 rule proposals that land as blocked human-approval cards.
+    // v007 task 4.1 routes worker policy changes through deterministic commands.
     expect(workerSkillText).toContain('generic or can be generalised');
-    expect(workerSkillText).toContain('keryx.policy.v1');
-    expect(workerSkillText).toContain('hermes keryx policy propose');
-    expect(workerSkillText).toContain('blocked human-approval suggestion card');
-    expect(workerSkillText).toContain('keryx:policy-proposal:<source>:<class>:<target-state>');
+    expect(workerSkillText).toContain('hermes keryx policy apply <task_id>');
+    expect(workerSkillText).toContain('hermes keryx policy scan <collector> --preview');
+    expect(workerSkillText).toContain('hermes keryx policy scan <collector>');
 
-    // Proposals are scoped narrowly and start in shadow before any active silent authority.
-    expect(workerSkillText).toContain('state: shadow');
-    expect(workerSkillText).toContain('min_confidence');
+    // Manual policy editing should be explicitly discouraged.
+    expect(workerSkillText).toContain('do not hand-edit `references/policy.json`');
+    expect(workerSkillText).toContain('Do not hand-edit policy files');
 
-    // The worker proposes promotion/demotion but never self-grants it.
+    // The worker still proposes promotion/demotion but never self-grants it.
     expect(workerSkillText).toContain('proposed by the worker, never self-taken');
   });
 
@@ -208,6 +206,27 @@ describe('bundled Keryx skills', () => {
     expect(bundledSkillText).not.toContain('"schema": "keryx.execution_decision.v1"');
     expect(bundledSkillText).not.toContain('"properties"');
     expect(bundledSkillText).not.toContain('"required"');
+  });
+
+  it('documents the email collector generated artifact contract in the creator skill', () => {
+    const collectorCreatorText = readFileSync(join(categoryRoot, 'keryx-collector-creator', 'SKILL.md'), 'utf8');
+
+    for (const phrase of [
+      'keryx-collector-email',
+      '$HERMES_HOME/skills/keryx-collector-email/SKILL.md',
+      'fixture harness',
+      'fake email facts only',
+      'source cursor state',
+      'exact-dismiss state',
+      'keryx:email:<immutable-message-id>',
+      'references/policy.json',
+      'state-changing rules in `state: shadow` only',
+      'correction comments are inputs to future classification, never direct execution authority',
+      'rejected, dismissed, or regretted class restarts confidence at `cold`',
+      'no raw email persistence',
+    ]) {
+      expect(collectorCreatorText, `collector creator skill should include ${phrase}`).toContain(phrase);
+    }
   });
 });
 

@@ -30,6 +30,8 @@ Interrupt pushes and digest reports go out through `hermes send` to the `notify_
 
 The digest itself is a scheduled `keryx-digest` cron job that reads `keryx.outcome.v1` comments since the last run and reports them in one relevancy-grouped, omit-empty message (daily/weekly), modeled on the `daily-brief`/`weekly-brief` pattern. Pending *decisions* are never pushed — they wait in the dashboard. If the digest is empty when you expect content, confirm silent cards actually reached `done` with an outcome comment whose `result_delivery` is `digest` (not `push` or `log_only`).
 
+Review-log access is pull-first: inspect done cards in the dashboard, archive handled items with `hermes keryx mark-reviewed <task_id>` (or `./bin/opsctl mark-reviewed <task_id>`), and preview digest output with `hermes keryx digest --preview`.
+
 ## Troubleshooting cron jobs
 
 1. List scheduled jobs and find the collector or `keryx-digest` job by name.
@@ -40,6 +42,30 @@ The digest itself is a scheduled `keryx-digest` cron job that reads `keryx.outco
 6. Keep failed state conservative: do not advance cursors when card creation or classification failed.
 
 Collector cron jobs should load the plugin-qualified generic skill `keryx:keryx-collector` and any created source-specific skill by its unqualified name `keryx-collector-<source>` (those live in Hermes' space, not the Keryx plugin, so they carry no `keryx:` prefix).
+
+### Optional policy-scan cron
+
+If workers are short-lived or rarely run for a collector, schedule an optional policy scan job so graduation/demotion proposal cards are still generated consistently.
+
+```text
+Name: keryx-policy-scan-<source>
+Schedule: daily or every 6h
+Prompt: Run `hermes keryx policy scan keryx-<source>`; report only errors.
+Skills: keryx:keryx-collector
+Delivery: local or origin, not interrupt
+```
+
+Keep this job non-urgent and quiet on success; it exists to keep policy-learning maintenance moving in the background. Include cold-reset checks in the runbook: after a regret/override resets a class to cold, the next policy scan should propose the appropriate demotion/shadow updates instead of waiting for a long worker run.
+
+`./keryx-setup.sh` does not create this job automatically.
+
+### Deterministic policy and correction command checks
+
+- `hermes keryx policy scan <collector> --preview` should show what promotion/demotion cards would be created for that collector's exact `(collector, class)` history.
+- `hermes keryx policy scan <collector>` creates those blocked proposal cards.
+- `hermes keryx policy apply <task_id>` is the deterministic apply path for approved proposal cards; do not hand-edit `references/policy.json`.
+- `hermes keryx schema correction` prints the correction schema.
+- `hermes keryx validate-correction <file>` validates `keryx.correction.v1` comments before posting/importing.
 
 ## Troubleshooting Kanban dispatch
 
